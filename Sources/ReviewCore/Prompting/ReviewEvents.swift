@@ -66,7 +66,7 @@ public struct ReviewAsk: Hashable, Sendable, Codable {
 public struct ReviewMoment: Hashable, Sendable {
 
     public var name: ReviewMomentName
-    /// The group whose signals are counted. `nil` counts every signal since the last request.
+    /// The group whose signals are counted. `nil` counts unscoped signals since the last request.
     public var scope: ReviewScope?
     /// Conditions in effect at this instant that rule a request out, such as being offline or
     /// showing a sheet. They are not stored.
