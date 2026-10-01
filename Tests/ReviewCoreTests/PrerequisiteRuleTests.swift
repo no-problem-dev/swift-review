@@ -185,6 +185,16 @@ struct PrerequisiteRuleTests {
             == .skip(.tooFewSignals(count: 0, required: 2)))
     }
 
+    @Test("範囲の無い場面は、範囲の無い合図だけを数え、範囲のある合図を数えない")
+    func unscopedMomentCountsOnlyUnscopedSignals() {
+        let scoped = Fixture.eligibleState(scope: Fixture.tripA)
+        #expect(Fixture.decide(ReviewMoment(Fixture.journalSaved), state: scoped)
+            == .skip(.tooFewSignals(count: 0, required: 2)))
+        #expect(Fixture.decide(ReviewMoment(Fixture.journalSaved), state: scoped.adding(
+            ReviewSignal(Fixture.checkedIn, at: Fixture.now))) == .skip(.tooFewSignals(count: 1, required: 2)))
+        #expect(Fixture.decide(ReviewMoment(Fixture.journalSaved), state: Fixture.eligibleState(scope: nil)) == .ask)
+    }
+
     @Test("範囲の無い場面は、遡る日数より前の合図を数えない")
     func unscopedLookback() {
         let state = ReviewState(

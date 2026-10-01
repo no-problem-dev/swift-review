@@ -81,8 +81,9 @@ public struct ReviewPolicy: Sendable, Equatable {
     /// trip count as one.
     public var signalCapPerScope: [ReviewSignalKind: Int]
 
-    /// For moments without a scope, how far back signals are counted. Only signals after the most
-    /// recent request count in any case, so one run of good outcomes never earns two requests.
+    /// For moments without a scope, how far back unscoped signals are counted. Only signals after
+    /// the most recent request count in any case, so one run of good outcomes never earns two
+    /// requests. Signals recorded in a scope never count toward a moment without one.
     /// `nil` sets no further limit.
     public var unscopedSignalLookbackDays: Int?
 

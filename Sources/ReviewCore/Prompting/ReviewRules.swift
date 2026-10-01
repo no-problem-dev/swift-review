@@ -56,7 +56,9 @@ public enum ReviewRules {
             let lastAsk = state.asks.last?.at
             let lookback = policy.unscopedSignalLookbackDays.map { now.addingTimeInterval(-Double($0) * .day) }
             candidates = state.signals.filter { signal in
-                (lastAsk.map { signal.at > $0 } ?? true) && (lookback.map { signal.at >= $0 } ?? true)
+                signal.scope == nil
+                    && (lastAsk.map { signal.at > $0 } ?? true)
+                    && (lookback.map { signal.at >= $0 } ?? true)
             }
         }
         let counted = candidates.filter { signal in
