@@ -47,8 +47,9 @@ swift-review
 ├── ReviewCore      Foundation only. Vocabulary, pure decision, prompter, ports,
 │                   UserDefaults/in-memory stores, write-review link, feedback values,
 │                   mailto builder, HTTP sender over an injected transport, metrics port
-├── ReviewSwiftUI   ReviewCore + SwiftUI + StoreKit. ReviewRequestBridge (the ReviewAsker),
-│                   .reviewRequests(_:suppressed:delay:), MailFeedbackSender (OpenURLAction)
+├── ReviewSwiftUI   ReviewCore + SwiftUI + StoreKit (+ MessageUI on iOS). ReviewRequestBridge
+│                   (the ReviewAsker), .reviewRequests(_:suppressed:delay:), MailFeedbackSender
+│                   (OpenURLAction), MailComposerFeedbackSender + .feedbackMailComposer(_:)
 └── ReviewTesting   ReviewCore. ManualReviewClock, RecordingReviewAsker,
                     RecordingReviewMetrics, RecordingFeedbackSender
 ```
@@ -56,7 +57,7 @@ swift-review
 | Product | Imports | Who imports it |
 |---|---|---|
 | `ReviewCore` | Foundation, os (for the lock) | Any layer that records signals or decides. No UI framework |
-| `ReviewSwiftUI` | ReviewCore, SwiftUI, StoreKit, Observation | **Only** the app target's root view |
+| `ReviewSwiftUI` | ReviewCore, SwiftUI, StoreKit, Observation, MessageUI and UIKit (iOS only) | **Only** the app target's root view |
 | `ReviewTesting` | ReviewCore | Tests and test-support targets. Never a shipping target |
 
 - **The manifest has no dependencies**, like `swift-calendar-date`. The DocC plugin is added in CI
@@ -146,9 +147,10 @@ request".
 ### 5.2 Counting signals
 
 - A moment **with** a scope counts that scope's signals.
-- A moment **without** a scope counts signals recorded after the most recent ask (any scope),
-  optionally limited to `unscopedSignalLookbackDays`. One run of good outcomes never earns two
-  requests.
+- A moment **without** a scope counts only **unscoped** signals recorded after the most recent
+  ask, optionally limited to `unscopedSignalLookbackDays`. One run of good outcomes never earns two
+  requests, and signals that belong to a trip or a document only ever count for a moment in that
+  same scope.
 - `ReviewMomentRule.countedSignals` restricts the kinds a moment counts (`nil` counts all).
 - `ReviewPolicy.signalCapPerScope[kind]` caps how much one kind contributes per scope: ten
   check-ins on one trip count once.
@@ -351,6 +353,7 @@ toward any limit, and the app records `writeReviewLinkOpened` if it wants the me
 | `FeedbackSender` | `send(_:) async throws(FeedbackError) -> FeedbackDelivery` (`.handedToMail`, `.queued`, `.delivered(receipt:)`) |
 | `FeedbackMail` | Builds a `mailto:` link with app-supplied labels, so the mail is in the app's language. `+` is escaped (mail apps read it as a space). Refuses attachments (`.attachmentsUnsupported`) rather than dropping them |
 | `MailFeedbackSender` (`ReviewSwiftUI`) | Opens that link through `OpenURLAction`; `.noMailClient` when nothing accepts it |
+| `MailComposerFeedbackSender` + `.feedbackMailComposer(_:)` (`ReviewSwiftUI`) | Hands the feedback to a view at the root, which presents `MFMailComposeViewController` with the attachments (one screenshot) over whatever is on top, sheets included (a SwiftUI `.sheet` on the root cannot appear over an open sheet). Sent or saved → `.handedToMail`; closed → `.cancelled`. Without a mail account it falls back to the `mailto:` link **without** the attachments (`url(for:omittingAttachments: true)`), so the person can still attach the file by hand. The sender itself has no MessageUI and is tested on macOS; the presenting modifier is iOS only |
 | `FeedbackPayload`, `HTTPFeedbackSender` | JSON (`kind`, `text`, optional `replyAddress`, optional `diagnostics`, `attachments` as base64) posted through a **transport closure the app supplies** |
 
 The HTTP sender does not open connections itself. The family rule is that HTTP goes through
@@ -398,11 +401,11 @@ goes.
 | tabisaki module | Imports | What it does with it |
 |---|---|---|
 | Domain, Planning, SDUI, Words, Outside | nothing from this package | Domain stays Foundation + CalendarDate + SyncCore |
-| Presentation | nothing (first stage) | The feedback screen keeps its own `FeedbackSender` protocol and draft state as the spec's §8 says; Composition adapts it to `ReviewCore.FeedbackSender`. See open question 4 |
+| Presentation | nothing | The feedback screen keeps its own `FeedbackSender` protocol and draft state as the spec's §8 says; Composition maps between them and `ReviewCore` (decision 4) |
 | **Composition** (AppSupport) | `ReviewCore` | `ReviewPrompting` shrinks to tabisaki's names and values (§5.3), builds the `ReviewPrompter` with `UserDefaultsReviewStateStore(key: "reviewPrompt.state")`, a `ReviewClock` over its `TripClock`, and a metrics bridge to its telemetry. `AppScreenSources+Review.swift` records signals and blockers in the existing screen ports and calls `reach` at T1–T3. Account deletion calls `reset()`; trip deletion calls `forget(_:)` |
 | **DeviceTesting** / `DeviceFlowTests` | `ReviewTesting` | `RecordingReviewAsker` replaces the planned `RecordingReviewHost`; `ReviewPromptFlowTests` runs the production assembly with it |
-| **App target** (`ios/App/`) | `ReviewSwiftUI` | `Production/ReviewPromptHost.swift` owns a `ReviewRequestBridge`, applies `.reviewRequests(bridge, suppressed: …)` at the root, and hands the bridge to the assembly as its `ReviewAsker`. The only StoreKit import in the app |
-| Device | — (designed-only) | A MessageUI composer (`MailComposer`) if the mail stage must carry the screenshot (open question 3) |
+| **App target** (`ios/App/`) | `ReviewSwiftUI` | `Production/ReviewPromptHost.swift` owns a `ReviewRequestBridge` and a `MailComposerFeedbackSender`, applies `.reviewRequests(bridge, suppressed: …)` and `.feedbackMailComposer(_:)` at the root, and hands both to the assembly as its `ReviewAsker` and `FeedbackSender`. The only StoreKit import in the app |
+| Device | — | The mail composer lives in `ReviewSwiftUI` (decision 3), so tabisaki's Device has no MessageUI code |
 
 Mapping tabisaki's rules onto the package:
 
@@ -435,25 +438,24 @@ lists in system.md §3-1 and the `ModuleBoundaryTests` table.
 | `WriteReviewLink`, `AppStoreID` | Implemented, tested |
 | Feedback values, `FeedbackMail`, `MailFeedbackSender`, `FeedbackPayload`, `HTTPFeedbackSender` | Implemented, tested |
 | Fakes | Implemented |
-| Analytics bridge | **Designed only**: the snippet in §8, by decision |
-| MessageUI composer with attachments | **Designed only**: iOS-only, would be a `ReviewMessageUI` product or live in the app's Device layer |
+| Analytics bridge | **Designed only**: the snippet in §8, by decision 2 |
+| `MailComposerFeedbackSender`, `.feedbackMailComposer(_:)` | Implemented; the sender is tested, the modifier is compiled for iOS but not run (it needs a scene and a mail account) |
 | Feedback outbox (send when back online) | **Designed only**, and app-side: the package defines `.queued` |
 | Remote kill switch | `ReviewPolicy.isEnabled` only; fetching it is the app's |
 
-## 15. Open questions
+## 15. Decisions on the open questions
 
-1. `decide` takes `version:` in addition to the spec's `at:moment:state:policy:`. Keep?
-2. Analytics: keep the in-app snippet, or publish a small `swift-review-analytics` package?
-3. tabisaki's mail stage wants a screenshot. `mailto:` cannot carry one: drop the screenshot until
-   the Worker stage, or add a MessageUI composer?
-4. Should tabisaki's Presentation import `ReviewCore` for `FeedbackDraft`/`FeedbackKind`
-   (Foundation only, but a new allowed dependency), or keep its own types?
-5. `errorDescription` is English, following `swift-analytics`' move to English for consumer-visible
-   text; FAMILY_CHARTER §2 still says Japanese. Which wins?
-6. Days of use are counted within the last 60 days (the spec's retention), so a returning person
-   needs three days of use in the last 60 before a later request. Intended?
-7. Unscoped moments count signals from every scope since the last request. Should they count only
-   unscoped signals instead?
+Answered by the tabisaki owner on 2026-10-01.
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | `decide` takes `version:` in addition to the spec's `at:moment:state:policy:` | **Keep** the argument (§5) |
+| 2 | Analytics: an in-app snippet, or a `swift-review-analytics` package | **The in-app snippet** (§8). No separate package. tabisaki wires it once its telemetry events exist |
+| 3 | The mail stage and a screenshot | **A mail composer** in `ReviewSwiftUI` that carries one attachment; `mailto:` stays as the fallback when Mail is not set up (§10) |
+| 4 | Should tabisaki's Presentation import `ReviewCore` | **No.** Presentation keeps its own types; Composition maps between them (§13) |
+| 5 | Language of `errorDescription` | **English**, matching `swift-analytics` |
+| 6 | Days of use counted within the last 60 days | **Intended** |
+| 7 | What an unscoped moment counts | **Only unscoped signals** (§5.2) |
 
 ---
 
@@ -475,4 +477,4 @@ lists in system.md §3-1 and the `ModuleBoundaryTests` table.
 
 **tabisaki での置き場所。** `ReviewCore` は Composition だけが import する（Domain・Planning・Presentation は import しない）。`ReviewSwiftUI` はアプリのターゲットの `ReviewPromptHost` だけ。`ReviewTesting` は DeviceTesting とテスト。公開の版が付くまでは path の依存、付いたら `.upToNextMinor(from: "0.1.0")` に切り替える。
 
-**決めてほしいこと。** §15 の7つ（`decide` の `version:` 引数・計測の橋の置き場所・メールの段のスクリーンショット・Presentation が `ReviewCore` を import してよいか・エラーの文の言語・開いた日を直近60日で数えること・範囲の無い場面の合図の数え方）。
+**決めたこと（§15）。** `decide` の `version:` 引数は残す。計測の橋はアプリの中の20行のまま。メールの段のスクリーンショットは `ReviewSwiftUI` のメールの作成画面（添付1つ）で運び、メールの設定が無い端末では添付を外した `mailto:` に戻る。tabisaki の Presentation は `ReviewCore` を import せず、Composition が写す。エラーの文は英語。開いた日を直近60日で数えるのは意図どおり。範囲の無い場面は、範囲の無い合図だけを数える。

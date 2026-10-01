@@ -104,6 +104,15 @@ struct FeedbackTests {
         #expect(throws: FeedbackError.attachmentsUnsupported) { try mail.url(for: feedback) }
     }
 
+    @Test("添付を外すと決めたときだけ、添付のあるものからもメールのリンクを作る")
+    func mailOmitsAttachmentsWhenAsked() throws {
+        let png = FeedbackAttachment(filename: "s.png", contentType: "image/png", data: Data([1, 2, 3]))
+        let feedback = try FeedbackDraft(text: "x", attachments: [png]).validated()
+        let url = try mail.url(for: feedback, omittingAttachments: true)
+        #expect(url.scheme == "mailto")
+        #expect(feedback.attachments.count == 1)
+    }
+
     @Test("HTTP の送り口は JSON を POST し、同意の無い診断の情報は載せない")
     func httpRequestShape() throws {
         let sender = HTTPFeedbackSender(endpoint: URL(string: "https://api.example.com/v1/feedback")!,

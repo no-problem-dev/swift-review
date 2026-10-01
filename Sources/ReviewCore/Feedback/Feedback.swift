@@ -189,8 +189,10 @@ public enum FeedbackError: Error, Sendable, Equatable, LocalizedError {
     case attachmentTooLarge(limit: Int)
     /// The channel cannot carry attachments (a `mailto:` link, for one).
     case attachmentsUnsupported
-    /// No app accepted the mail link.
+    /// No app accepted the mail link, and no mail composer could be shown.
     case noMailClient
+    /// The person closed the mail composer without sending.
+    case cancelled
     /// The server answered with a status outside 200–299.
     case rejected(status: Int)
     /// The request did not complete.
@@ -205,6 +207,7 @@ public enum FeedbackError: Error, Sendable, Equatable, LocalizedError {
         case let .attachmentTooLarge(limit): "An attachment is larger than \(limit) bytes."
         case .attachmentsUnsupported: "This channel cannot carry attachments."
         case .noMailClient: "No app could open the mail."
+        case .cancelled: "The mail was closed without sending."
         case let .rejected(status): "The server refused the feedback (status \(status))."
         case let .transportFailed(message): "The feedback could not be sent: \(message)"
         }

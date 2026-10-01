@@ -83,6 +83,44 @@ struct ReviewSwiftUITests {
         await #expect(throws: FeedbackError.noMailClient) { try await refusing.send(feedback) }
     }
 
+    private let feedbackMail = FeedbackMail(
+        recipient: "support@example.com",
+        labels: .init(subjects: [:], fallbackSubject: "Feedback", replyTo: "Reply to", diagnostics: "Diagnostics")
+    )
+
+    @Test("作成画面の送り口は、受ける画面が無ければメールを開けない失敗にする")
+    func composerWithoutHost() async throws {
+        let sender = MailComposerFeedbackSender(mail: feedbackMail)
+        let feedback = try FeedbackDraft(text: "Hello").validated()
+        await #expect(throws: FeedbackError.noMailClient) { try await sender.send(feedback) }
+    }
+
+    @Test("作成画面の送り口は、添付ごと画面に渡し、画面の結果を返す")
+    func composerCarriesAttachmentToHost() async throws {
+        let sender = MailComposerFeedbackSender(mail: feedbackMail)
+        sender.attachHost()
+        let png = FeedbackAttachment(filename: "s.png", contentType: "image/png", data: Data([1, 2, 3]))
+        let feedback = try FeedbackDraft(text: "Hello", attachments: [png]).validated()
+        let task = Task { try await sender.send(feedback) }
+        try await waitUntil { sender.pendingID != nil }
+        #expect(sender.pendingFeedback?.attachments == [png])
+
+        sender.resolve(try #require(sender.pendingID), with: .success(.handedToMail))
+        #expect(try await task.value == .handedToMail)
+        #expect(sender.pendingID == nil)
+    }
+
+    @Test("作成画面を閉じたら、送らずに取りやめた失敗にする")
+    func composerDetachCancels() async throws {
+        let sender = MailComposerFeedbackSender(mail: feedbackMail)
+        sender.attachHost()
+        let feedback = try FeedbackDraft(text: "Hello").validated()
+        let task = Task { try await sender.send(feedback) }
+        try await waitUntil { sender.pendingID != nil }
+        sender.detachHost()
+        await #expect(throws: FeedbackError.cancelled) { try await task.value }
+    }
+
     private func waitUntil(_ condition: @MainActor () -> Bool) async throws {
         for _ in 0..<200 where !condition() {
             try await Task.sleep(for: .milliseconds(5))

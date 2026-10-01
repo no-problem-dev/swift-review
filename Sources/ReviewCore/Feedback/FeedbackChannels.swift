@@ -50,8 +50,13 @@ public struct FeedbackMail: Hashable, Sendable {
     }
 
     /// The `mailto:` link for `feedback`.
-    public func url(for feedback: Feedback) throws(FeedbackError) -> URL {
-        guard feedback.attachments.isEmpty else { throw .attachmentsUnsupported }
+    ///
+    /// Feedback with attachments is refused with ``FeedbackError/attachmentsUnsupported`` unless
+    /// `omittingAttachments` is `true`, which builds the link from the text and diagnostics alone.
+    /// A caller that omits them is the fallback when no mail composer is available, and the person
+    /// can still attach the file by hand in the mail app.
+    public func url(for feedback: Feedback, omittingAttachments: Bool = false) throws(FeedbackError) -> URL {
+        guard omittingAttachments || feedback.attachments.isEmpty else { throw .attachmentsUnsupported }
         var components = URLComponents()
         components.scheme = "mailto"
         components.path = recipient

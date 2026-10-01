@@ -30,7 +30,7 @@ holds requests back and for how long, and the limits. One function answers *ask*
 - **Device-only, versioned state.** JSON with a schema number; a newer schema is never overwritten,
   unknown fields survive, account deletion resets it
 - **Feedback, separately.** A draft with opt-in diagnostics (what you preview is what is sent), a
-  `mailto:` channel and an HTTP channel over your own transport
+  mail composer (one attachment, `mailto:` as the fallback) and an HTTP channel over your own transport
 - **No dependencies.** StoreKit and SwiftUI are confined to `ReviewSwiftUI`
 
 ## Quick Start
@@ -111,7 +111,7 @@ non-goals with citations, the analytics bridge, and how an app integrates it.
 | Product | Contents | Depends on |
 |---|---|---|
 | `ReviewCore` | Vocabulary, decision, prompter, ports, stores, write-review link, feedback | Foundation |
-| `ReviewSwiftUI` | `ReviewRequestBridge`, `.reviewRequests`, `MailFeedbackSender` | SwiftUI, StoreKit |
+| `ReviewSwiftUI` | `ReviewRequestBridge`, `.reviewRequests`, `MailFeedbackSender`, `MailComposerFeedbackSender` and `.feedbackMailComposer` (one attachment) | SwiftUI, StoreKit, MessageUI (iOS) |
 | `ReviewTesting` | Test doubles | nothing |
 
 To send metrics to [swift-analytics](https://github.com/no-problem-dev/swift-analytics), map

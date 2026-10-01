@@ -19,7 +19,7 @@ let package = Package(
         // write-review link and feedback values. Foundation only: no StoreKit, no SwiftUI.
         .library(name: "ReviewCore", targets: ["ReviewCore"]),
         // The only target that imports StoreKit. Calls `RequestReviewAction` from the view tree,
-        // and opens a feedback mail through `OpenURLAction`.
+        // and opens a feedback mail: the system composer (one attachment) or a `mailto:` link.
         .library(name: "ReviewSwiftUI", targets: ["ReviewSwiftUI"]),
         // Test doubles. **Never import this from a shipping target.**
         .library(name: "ReviewTesting", targets: ["ReviewTesting"])

@@ -22,7 +22,7 @@ App Store の評価を、iOS の評価のダイアログだけで、アプリが
 - **条件は値。** インストールからの日数・開いた日の数（数える時間帯はアプリが決める）・場面ごとの合図の数・出来事ごとの期間・版ごとの回数・間の日数・365日の回数
 - **呼んだ回はすべて数える。** iOS は出したかを返さないので、出たかに関わらず数えます。画面が呼ぶ前に取りやめた回は数えません
 - **端末だけの、版の番号つきの状態。** 新しい版が書いた形は書き換えず、知らない項目は残し、アカウントの削除で消します
-- **要望は別に受け取る。** 診断の情報は本人が選んだときだけ添え、表示した行と送る行は同じです。送り口は `mailto:` と、アプリの通信の関数で送る HTTP
+- **要望は別に受け取る。** 診断の情報は本人が選んだときだけ添え、表示した行と送る行は同じです。送り口はメールの作成画面（スクリーンショットを1枚添えられる。メールの設定が無ければ添付を外した `mailto:`）と、アプリの通信の関数で送る HTTP
 - **外部の依存は無し。** StoreKit と SwiftUI は `ReviewSwiftUI` の中だけです
 
 ## クイックスタート
@@ -102,7 +102,7 @@ if let id = AppStoreID(appStoreID) {
 | プロダクト | 中身 | 依存 |
 |---|---|---|
 | `ReviewCore` | 語彙・判定・`ReviewPrompter`・口・置き場所・書く画面のリンク・要望 | Foundation |
-| `ReviewSwiftUI` | `ReviewRequestBridge`・`.reviewRequests`・`MailFeedbackSender` | SwiftUI・StoreKit |
+| `ReviewSwiftUI` | `ReviewRequestBridge`・`.reviewRequests`・`MailFeedbackSender`・メールの作成画面の `MailComposerFeedbackSender` と `.feedbackMailComposer`（添付1つ） | SwiftUI・StoreKit・MessageUI（iOS） |
 | `ReviewTesting` | テストの偽物 | なし |
 
 [swift-analytics](https://github.com/no-problem-dev/swift-analytics) に計測を送るときは、`ReviewMetricEvent` を `AnalyticsEvent` に写す型をアプリの中に20行ほど書きます（DESIGN.md §8）。

@@ -39,6 +39,10 @@ First release, planned as 0.1.0.
 - `ReviewSwiftUI`: `ReviewRequestBridge` and `.reviewRequests(_:suppressed:delay:)`, which call
   `RequestReviewAction` once the scene is active and nothing is presented, and drop the request
   (uncounted) otherwise; `MailFeedbackSender` over `OpenURLAction`.
+- `ReviewSwiftUI`: `MailComposerFeedbackSender` and `.feedbackMailComposer(_:)`, which show the
+  system mail composer with one attachment and fall back to a `mailto:` link without attachments
+  when the device has no mail account. `FeedbackError.cancelled` for a composer closed unsent;
+  `FeedbackMail.url(for:omittingAttachments:)` for that fallback.
 - `ReviewTesting`: `ManualReviewClock`, `RecordingReviewAsker`, `RecordingReviewMetrics`,
   `RecordingFeedbackSender`.
 
@@ -47,3 +51,8 @@ First release, planned as 0.1.0.
 - No custom rating dialog, pre-prompt, sentiment routing or incentive (App Review Guidelines 5.6.1,
   3.2.2(x), 5.6.3, and §3's "filtered" feedback).
 - No dependencies. The `swift-analytics` bridge is a short adapter in the app (DESIGN.md §8).
+- A moment without a scope counts only unscoped signals; scoped signals count only for a moment in
+  the same scope.
+- The open questions of DESIGN.md §15 are decided: keep `version:` on `decide`, keep the analytics
+  snippet in the app, a mail composer for the screenshot, English error descriptions, days of use
+  within the last 60 days.
