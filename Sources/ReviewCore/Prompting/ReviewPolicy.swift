@@ -45,10 +45,14 @@ public struct ReviewMomentRule: Hashable, Sendable {
 /// What a declared own-screen moment needs before the app shows its own review screen.
 ///
 /// An own-screen moment never calls the system prompt, so it does not spend the system's three
-/// prompts a year. That is why it is free of the install, days-of-use, signal, 60-day and yearly
-/// rules, and holds only two things of its own: once per version, and a wait after the person
-/// pressed the screen's rate button (``ReviewPrompter/markRated()``). Blockers still hold it back,
-/// because a screen right after a paywall or an error is as badly timed as a prompt (R10, R25).
+/// prompts a year. That is why it is free of the days-of-use, signal, 60-day and yearly rules, and
+/// holds two things of its own: once per version, and a wait after the person pressed the screen's
+/// rate button (``ReviewPrompter/markRated()``).
+///
+/// It shares two things with the system prompt, because they are about the person, not about the
+/// allowance: the days since install (``minimumDaysSinceInstall``, the policy's 7 by default; R5,
+/// R9), and blockers, because a screen right after a paywall or an error is as badly timed as a
+/// prompt (R10, R25).
 public struct ReviewScreenRule: Hashable, Sendable {
 
     /// Elapsed days after ``ReviewPrompter/markRated()`` during which the screen is not shown again,
@@ -57,8 +61,16 @@ public struct ReviewScreenRule: Hashable, Sendable {
     /// screen without rating sees it again in the next version.
     public var daysAfterRated: Int
 
-    public init(daysAfterRated: Int = 120) {
+    /// Elapsed days since the first recorded launch before the screen is shown. `nil` (the default)
+    /// uses ``ReviewPolicy/minimumDaysSinceInstall``; `0` turns the rule off for this screen.
+    ///
+    /// Someone who installed yesterday and updated today sees What's New, but has not yet had the
+    /// time to find the app useful, and a rating asked for before that comes out low (R5, R9).
+    public var minimumDaysSinceInstall: Int?
+
+    public init(daysAfterRated: Int = 120, minimumDaysSinceInstall: Int? = nil) {
         self.daysAfterRated = daysAfterRated
+        self.minimumDaysSinceInstall = minimumDaysSinceInstall
     }
 }
 

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The own-screen moment (`ReviewScreenMoment`, `present(_:)`) now waits the days since install,
+  `ReviewPolicy.minimumDaysSinceInstall` (7) by default, and reports `.tooSoonAfterInstall` as a
+  prerequisite. Why by default (rating.md R5, R9, R24; DESIGN.md §5.5): the 7 days are not only
+  about spending the system's allowance, but about asking someone who has not yet used the app, who
+  rates it low. Reaching What's New does not mean that time has passed (installed 1.6 yesterday,
+  updated to 1.7 today), and the screen's rate button may call the system prompt (R24 ③). It is a
+  line drawn by behaviour, so it keeps R3 and "the same screen for everyone". A screen that should
+  not wait sets `ReviewScreenRule(minimumDaysSinceInstall: 0)`.
+
+### Added
+
+- `ReviewScreenRule.minimumDaysSinceInstall` (`nil` follows the policy, `0` turns it off).
+- `ReviewScreenMoment(_:ongoing:unmet:)`: the app's own prerequisites, such as "has received what
+  the app promises", checked as a prerequisite (`.requirementUnmet`) like a `ReviewMoment`'s,
+  instead of being passed as an `ongoing` blocker.
+- `ReviewPrompter.backdateInstall(to:)`: moves the recorded install time back to an earlier first
+  use the app knows of, for an app that adopted the package after it had users. Only moves it
+  earlier.
+
 ## [0.2.1] - 2026-11-08
 
 ### Added

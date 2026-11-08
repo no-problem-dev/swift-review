@@ -79,6 +79,18 @@ public actor ReviewPrompter {
         mutate { $0.markActive(at: now, in: policy.timeZone, retainingDays: policy.activeDayRetention) }
     }
 
+    /// Moves the recorded install time back to an earlier first use the app knows of, such as the
+    /// date of its oldest record, for an app that adopted the package after it had users.
+    ///
+    /// Without it, someone who has used the app for years counts as installed on the day the
+    /// package first ran, and both kinds of moment wait ``ReviewPolicy/minimumDaysSinceInstall``.
+    /// It only moves the time earlier; a later date changes nothing.
+    public func backdateInstall(to date: Date) {
+        mutate { state in
+            if state.installedAt.map({ date < $0 }) ?? true { state.installedAt = date }
+        }
+    }
+
     /// Counts one good outcome.
     public func record(_ kind: ReviewSignalKind, in scope: ReviewScope? = nil) {
         let now = clock.now()
