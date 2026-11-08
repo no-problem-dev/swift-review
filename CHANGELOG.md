@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-08
+
 ### Added
 
 - `UserDefaultsReviewStateStore(defaults:key:)` takes a `UserDefaults` instance the app holds
