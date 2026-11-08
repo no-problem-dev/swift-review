@@ -46,6 +46,44 @@ struct StoreTests {
         #expect(UserDefaultsReviewStateStore(suiteName: "NSGlobalDomain") == nil)
     }
 
+    @Test("渡した UserDefaults のインスタンスに書き、同じ suite から読める")
+    func instanceWritesToTheGivenDefaults() throws {
+        let suite = "swift-review.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let store = UserDefaultsReviewStateStore(defaults: defaults)
+        try store.save(Fixture.eligibleState())
+        #expect(defaults.data(forKey: "review.state") != nil)
+        #expect(try UserDefaultsReviewStateStore(suiteName: suite)!.load() == Fixture.eligibleState())
+        store.clear()
+        #expect(defaults.object(forKey: "review.state") == nil)
+    }
+
+    @Test("インスタンスでもキーを変えられ、別のキーには触れない")
+    func instanceHonorsKey() throws {
+        let defaults = try #require(UserDefaults(suiteName: "swift-review.tests.\(UUID().uuidString)"))
+        let store = UserDefaultsReviewStateStore(defaults: defaults, key: "other.key")
+        try store.save(Fixture.eligibleState())
+        #expect(defaults.object(forKey: "review.state") == nil)
+        #expect(try UserDefaultsReviewStateStore(defaults: defaults, key: "other.key").load() == Fixture.eligibleState())
+    }
+
+    @Test("インスタンスの置き場所は Sendable のまま別のタスクから使える")
+    func instanceIsSendable() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "swift-review.tests.\(UUID().uuidString)"))
+        let store = UserDefaultsReviewStateStore(defaults: defaults)
+        try await Task.detached { try store.save(Fixture.eligibleState()) }.value
+        #expect(try store.load() == Fixture.eligibleState())
+    }
+
+    @Test("前からの書き方（引数なし・キーだけ）はそのまま作れる")
+    func existingCallsStillCompile() {
+        let stores: [any ReviewStateStore] = [
+            UserDefaultsReviewStateStore(),
+            UserDefaultsReviewStateStore(key: "review.state")
+        ]
+        #expect(stores.count == 2)
+    }
+
     @Test("メモリの置き場所も、本物と同じ保存の形を通る")
     func inMemoryUsesTheStoredForm() throws {
         let store = try InMemoryReviewStateStore(Fixture.eligibleState())
