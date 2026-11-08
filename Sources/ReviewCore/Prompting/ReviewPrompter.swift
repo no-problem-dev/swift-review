@@ -12,8 +12,8 @@ public struct ReviewAttempt: Hashable, Sendable {
     }
 }
 
-/// Records what happens in the app and, at a declared moment, asks through the system if the rules
-/// allow it.
+/// Records what happens in the app and, at a declared moment, asks through the system or allows the
+/// app's own review screen if the rules allow it.
 ///
 /// This is the stateful shell around ``ReviewRules/decide(at:version:moment:state:policy:)``: it
 /// loads state, stamps "now" from its clock, decides, hands an ask to the ``ReviewAsker``, records
@@ -30,7 +30,8 @@ public struct ReviewAttempt: Hashable, Sendable {
 /// await prompter.markActive()                          // on launch and on every return to the foreground
 /// await prompter.record(.movementDecided, in: tripScope)
 /// await prompter.block(.paywallDismissed)
-/// await prompter.reach(ReviewMoment(.journalSaved, in: tripScope))
+/// await prompter.reach(ReviewMoment(.journalSaved, in: tripScope))  // the system prompt
+/// await prompter.present(ReviewScreenMoment(.afterWhatsNew))      // the app's own screen
 /// ```
 ///
 /// ## When state cannot be read
@@ -47,6 +48,7 @@ public actor ReviewPrompter {
     private let clock: any ReviewClock
     private let metrics: any ReviewMetrics
     private var isAsking = false
+    private var launchedAt: Date?
 
     public init(
         policy: ReviewPolicy,
@@ -69,9 +71,11 @@ public actor ReviewPrompter {
     /// Counts today as a day of use, and stamps the install time on the first call.
     ///
     /// Call it at launch and whenever the app returns to the foreground; repeats on the same day
-    /// change nothing.
+    /// change nothing. The first call also starts this launch's
+    /// ``ReviewPolicy/minimumSecondsSinceLaunch``.
     public func markActive() {
         let now = clock.now()
+        if launchedAt == nil { launchedAt = now }
         mutate { $0.markActive(at: now, in: policy.timeZone, retainingDays: policy.activeDayRetention) }
     }
 
@@ -95,6 +99,16 @@ public actor ReviewPrompter {
     /// Drops a scope's signals and blockers, for a trip or document that was deleted.
     public func forget(_ scope: ReviewScope) {
         mutate { $0.forget(scope) }
+    }
+
+    /// Records that the person pressed the rate button on the app's own review screen. The screen is
+    /// then not shown for ``ReviewScreenRule/daysAfterRated``, even in a new version.
+    ///
+    /// Only the press is recorded. Whether a review was written is unknowable, and the mark has no
+    /// effect on the system prompt's moments.
+    public func markRated() {
+        let now = clock.now()
+        mutate { $0.ratedAt = now }
     }
 
     /// Erases everything, as on account deletion. The next ``markActive()`` starts over as a fresh
@@ -138,11 +152,41 @@ public actor ReviewPrompter {
                 state.record(ReviewAsk(at: now, version: version, moment: moment.name, scope: moment.scope))
                 ordinal = state.asks.count
             }
-            metrics.record(.requested(moment, version: version, ordinal: ordinal))
+            metrics.record(.requested(moment, ordinal: ordinal))
         case let .abandoned(reason):
             metrics.record(.abandoned(moment, reason))
         }
         return ReviewAttempt(decision: decision, outcome: outcome)
+    }
+
+    /// Decides whether the app may show its own review screen now, and when it may, records the
+    /// show so the same version does not show it again.
+    ///
+    /// Call it right before presenting the screen, and present only on ``ReviewDecision/ask``. The
+    /// system is never called and nothing counts toward its limits. While a system request waits
+    /// for the screen, the answer is ``ReviewSkipReason/askInProgress``.
+    @discardableResult
+    public func present(_ moment: ReviewScreenMoment) -> ReviewDecision {
+        let decision: ReviewDecision
+        if isAsking {
+            decision = .skip(.askInProgress)
+        } else {
+            do {
+                let state = try store.load() ?? ReviewState()
+                decision = ReviewRules.decide(at: clock.now(), version: version, screen: moment, state: state,
+                                              policy: policy)
+            } catch {
+                metrics.record(.stateUnavailable(error))
+                metrics.record(.screenEvaluated(moment, .skip(.stateUnavailable)))
+                return .skip(.stateUnavailable)
+            }
+        }
+        metrics.record(.screenEvaluated(moment, decision))
+        guard decision == .ask else { return decision }
+        let now = clock.now()
+        mutate { $0.record(ReviewScreenShow(at: now, version: version, moment: moment.name)) }
+        metrics.record(.screenShown(moment))
+        return decision
     }
 
     /// The stored state, for a developer screen.
@@ -160,7 +204,8 @@ public actor ReviewPrompter {
             metrics.record(.stateUnavailable(error))
             return .skip(.stateUnavailable)
         }
-        return ReviewRules.decide(at: clock.now(), version: version, moment: moment, state: state, policy: policy)
+        return ReviewRules.decide(at: clock.now(), version: version, moment: moment, state: state, policy: policy,
+                                  launchedAt: launchedAt)
     }
 
     private func mutate(_ change: (inout ReviewState) -> Void) {

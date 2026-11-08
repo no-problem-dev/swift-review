@@ -60,7 +60,7 @@ struct ReviewPrompterTests {
         let state = try #require(try h.store.load())
         #expect(state.asks == [ReviewAsk(at: h.clock.now(), version: Fixture.v1_0, moment: Fixture.journalSaved,
                                          scope: Fixture.tripA)])
-        #expect(h.metrics.events.last == .requested(journal, version: Fixture.v1_0, ordinal: 1))
+        #expect(h.metrics.events.last == .requested(journal, ordinal: 1))
     }
 
     @Test("画面が取りやめた回は数えず、次の場面でまた頼める")
@@ -189,13 +189,16 @@ struct ReviewPrompterTests {
         let prompter = h.prompter()
         await prompter.reach(journal)
 
-        #expect(h.metrics.names == ["review_prompt_evaluated", "review_prompt_requested"])
+        #expect(h.metrics.names == ["review_prompt_evaluated", "review_requested"])
         let evaluated = h.metrics.events[0].parameters
         #expect(evaluated["moment"] == .text("journal_saved"))
         #expect(evaluated["eligible"] == .flag(true))
         #expect(evaluated["asked"] == .flag(true))
         let requested = h.metrics.events[1].parameters
-        #expect(requested == ["moment": .text("journal_saved"), "app_version": .text("1.0.0"), "nth": .count(1)])
+        // Exactly the common catalog's `review_requested { moment }`; the version is the envelope's.
+        #expect(requested == ["moment": .text("journal_saved")])
+        #expect(h.metrics.events[1].isInCommonCatalog)
+        #expect(!h.metrics.events[0].isInCommonCatalog)
         let values = h.metrics.events.flatMap { $0.parameters.values.map(\.description) }
         #expect(!values.contains(Fixture.tripA.rawValue))
     }
@@ -231,7 +234,7 @@ struct ReviewPrompterTests {
 
         h.clock.advance(days: 1)
         #expect(await next.reach(tripB).outcome == .requested)
-        #expect(h.metrics.events.last == .requested(tripB, version: Fixture.v1_1, ordinal: 2))
+        #expect(h.metrics.events.last == .requested(tripB, ordinal: 2))
     }
 
     /// Ten days of use over ten days, then two signals in trip A.

@@ -7,9 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-08
+
+The base for every app in the family (studio `docs/app-shared-packages-design-2026-11-08.md`).
+
+### Changed (breaking)
+
+- `ReviewPolicy` defaults are studio's rating rules (`knowledge/rating.md`), one set, no presets:
+  `minimumDaysBetweenAsks` 120 → **60** (R9), `minimumActiveDays` 3 → **0** (no such rule),
+  `asksPerScope` 1 → **`nil`** (no such rule), `cooldowns` `[:]` → **`standardCooldowns`**
+  (paywall closed 14, error 3, feedback sent 30, cancel screen 90 days; R25), new
+  `minimumSecondsSinceLaunch` **30** (R9). `timeZone` defaults to `.current` and `moments` to `[:]`.
+- `ReviewMomentRule(minimumSignals:)` defaults to **3** (R8).
+- `.reviewRequests(_:suppressed:delay:)` waits **1.8 s** by default (was 1 s; R8).
+- `ReviewMetricEvent.requested(_:version:ordinal:)` → `requested(_:ordinal:)`, named
+  **`review_requested`** (was `review_prompt_requested`) with only **`moment`** (was also
+  `app_version` and `nth`), matching the common analytics catalog. The version is the envelope's.
+- Built-in `ReviewBlockerKind`s `paywallDismissed`, `error`, `feedbackSent`, `cancelScreenOpened`,
+  `purchased`, `paywallShown`. An app that declared the same names in an extension gets an
+  ambiguity error.
+- New `ReviewSkipReason` cases (`tooSoonAfterLaunch`, `alreadyShownThisVersion`,
+  `ratedRecently`): exhaustive `switch`es need them.
+
+### Added
+
+- The own-screen moment: `ReviewScreenMoment`, `ReviewScreenRule(daysAfterRated: 120)`,
+  `ReviewPolicy.screens`, `ReviewRules.decide(at:version:screen:state:policy:)`,
+  `ReviewPrompter.present(_:)` and `markRated()`, `ReviewScreenShow`, and the metrics
+  `review_screen_evaluated` and `review_screen_shown`. It never calls the system (DESIGN.md §5.5).
+- `ReviewState.screenShows` and `ratedAt`, stored without a schema bump (0.1 states read as empty).
+- `ReviewRules.decide(…, launchedAt:)` and `ReviewSkipReason.tooSoonAfterLaunch(until:)`.
+- `ReviewMomentName.afterWhatsNew` (`after_whats_new`).
+- `ReviewMetricsHandler` (a closure as the metrics port) and `ReviewMetricEvent.isInCommonCatalog`.
+- `AppVersion` is documented as the family's one version type; `AppVersion(bundle:)` defaults to
+  `.main`; `isSame(as:at:)`.
+
+### Migration from 0.1
+
+1. Delete your own `ReviewBlockerKind` declarations of `paywall_dismissed`, `error`,
+   `feedback_sent`, `cancel_screen_opened`; the built-in ones have the same raw values, so stored
+   state keeps working.
+2. If you relied on the old defaults, pass them: `minimumActiveDays: 3`,
+   `minimumDaysBetweenAsks: 120`, `asksPerScope: 1` (tabisaki does). If you passed `cooldowns:`,
+   it still replaces the defaults; merge with `ReviewPolicy.standardCooldowns` to keep them.
+3. Rename `review_prompt_requested` to `review_requested` in your analytics catalog and drop its
+   `app_version` and `nth` parameters. Replace `.requested(m, version: v, ordinal: n)` with
+   `.requested(m, ordinal: n)`.
+4. Handle the new `ReviewSkipReason` cases in any exhaustive `switch`.
+5. If your prompter is created before the first screen, the 30-second rule now holds requests at
+   the start of each launch. Pass `minimumSecondsSinceLaunch: 0` only with a reason.
+
 ## [0.1.0] - 2026-10-01
 
-First release, planned as 0.1.0.
+First release.
 
 ### Added
 

@@ -13,7 +13,8 @@ public enum ReviewRules {
     ///
     /// 1. **Prerequisites** — enabled, moment declared, days since install, days of use,
     ///    app requirements, signals
-    /// 2. **Blockers** — conditions in effect now, then recorded blockers still cooling down
+    /// 2. **Blockers** — conditions in effect now, recorded blockers still cooling down, then the
+    ///    seconds since this launch
     /// 3. **Limits** — once per version, once per scope, days since the last request, the rolling
     ///    365-day cap
     ///
@@ -26,17 +27,58 @@ public enum ReviewRules {
     ///   - moment: Where the app is, and what holds right now
     ///   - state: What has been recorded on this device
     ///   - policy: The thresholds
+    ///   - launchedAt: When this launch began, for ``ReviewPolicy/minimumSecondsSinceLaunch``.
+    ///     `nil` skips that rule; ``ReviewPrompter`` passes its first ``ReviewPrompter/markActive()``.
     public static func decide(
         at now: Date,
         version: AppVersion,
         moment: ReviewMoment,
         state: ReviewState,
-        policy: ReviewPolicy
+        policy: ReviewPolicy,
+        launchedAt: Date? = nil
     ) -> ReviewDecision {
         if let reason = prerequisiteFailure(at: now, moment: moment, state: state, policy: policy)
-            ?? blockerFailure(at: now, moment: moment, state: state, policy: policy)
+            ?? blockerFailure(at: now, ongoing: moment.ongoing, scope: moment.scope, state: state, policy: policy)
+            ?? launchFailure(at: now, launchedAt: launchedAt, policy: policy)
             ?? limitFailure(at: now, version: version, moment: moment, state: state, policy: policy) {
             return .skip(reason)
+        }
+        return .ask
+    }
+
+    /// Decides whether the app may show its own review screen at `moment`.
+    ///
+    /// The screen never reaches the system, so only these rules apply, in this order:
+    ///
+    /// 1. **Prerequisites** — enabled, moment declared in ``ReviewPolicy/screens``
+    /// 2. **Blockers** — conditions in effect now, then recorded blockers still cooling down
+    ///    (a screen right after a paywall or an error is as badly timed as a prompt)
+    /// 3. **Limits** — once per version (at ``ReviewPolicy/versionGranularity``), then
+    ///    ``ReviewScreenRule/daysAfterRated`` since the person last pressed the rate button
+    ///
+    /// Install days, days of use, signals, the gap between asks and the yearly limit are about the
+    /// system's allowance and are not checked. Showing the screen is never recorded as an ask.
+    public static func decide(
+        at now: Date,
+        version: AppVersion,
+        screen moment: ReviewScreenMoment,
+        state: ReviewState,
+        policy: ReviewPolicy
+    ) -> ReviewDecision {
+        guard policy.isEnabled else { return .skip(.disabled) }
+        guard let rule = policy.screens[moment.name] else { return .skip(.undeclaredMoment(moment.name)) }
+        if let reason = blockerFailure(at: now, ongoing: moment.ongoing, scope: nil, state: state, policy: policy) {
+            return .skip(reason)
+        }
+        let current = version.truncated(to: policy.versionGranularity)
+        if state.screenShows.contains(where: {
+            $0.moment == moment.name && $0.version.truncated(to: policy.versionGranularity) == current
+        }) {
+            return .skip(.alreadyShownThisVersion(current))
+        }
+        if let ratedAt = state.ratedAt {
+            let until = ratedAt.addingTimeInterval(Double(rule.daysAfterRated) * .day)
+            if now < until { return .skip(.ratedRecently(until: until)) }
         }
         return .ask
     }
@@ -100,15 +142,16 @@ public enum ReviewRules {
     }
 
     private static func blockerFailure(
-        at now: Date, moment: ReviewMoment, state: ReviewState, policy: ReviewPolicy
+        at now: Date, ongoing: Set<ReviewBlockerKind>, scope: ReviewScope?, state: ReviewState,
+        policy: ReviewPolicy
     ) -> ReviewSkipReason? {
-        if let ongoing = moment.ongoing.min() { return .ongoing(ongoing) }
+        if let ongoing = ongoing.min() { return .ongoing(ongoing) }
 
         struct Hold { let kind: ReviewBlockerKind; let until: Date? }
         var holds: [Hold] = []
         for blocker in state.blockers {
             guard let cooldown = policy.cooldowns[blocker.kind] else { continue }
-            let sameScope = blocker.scope != nil && blocker.scope == moment.scope
+            let sameScope = blocker.scope != nil && blocker.scope == scope
             if cooldown.holdsForScope, sameScope {
                 holds.append(Hold(kind: blocker.kind, until: nil))
                 continue
@@ -126,6 +169,12 @@ public enum ReviewRules {
             }
         }
         return longest.map { .coolingDown($0.kind, until: $0.until) }
+    }
+
+    private static func launchFailure(at now: Date, launchedAt: Date?, policy: ReviewPolicy) -> ReviewSkipReason? {
+        guard let launchedAt else { return nil }
+        let until = launchedAt.addingTimeInterval(TimeInterval(policy.minimumSecondsSinceLaunch))
+        return now < until ? .tooSoonAfterLaunch(until: until) : nil
     }
 
     private static func limitFailure(

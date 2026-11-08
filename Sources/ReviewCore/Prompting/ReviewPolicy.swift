@@ -25,28 +25,55 @@ public struct ReviewCooldown: Hashable, Sendable {
     public static func days(_ days: Int) -> ReviewCooldown { ReviewCooldown(days: days) }
 }
 
-/// What a declared moment needs before it may ask.
+/// What a declared system-prompt moment needs before it may ask.
 public struct ReviewMomentRule: Hashable, Sendable {
 
     /// How many signals have to be counted (after ``ReviewPolicy/signalCapPerScope`` is applied).
+    ///
+    /// Defaults to 3: ask at the third time the app proved useful (rating.md R8).
     public var minimumSignals: Int
 
     /// Which kinds count toward ``minimumSignals``; `nil` counts every kind.
     public var countedSignals: Set<ReviewSignalKind>?
 
-    public init(minimumSignals: Int, countedSignals: Set<ReviewSignalKind>? = nil) {
+    public init(minimumSignals: Int = 3, countedSignals: Set<ReviewSignalKind>? = nil) {
         self.minimumSignals = minimumSignals
         self.countedSignals = countedSignals
     }
 }
 
+/// What a declared own-screen moment needs before the app shows its own review screen.
+///
+/// An own-screen moment never calls the system prompt, so it does not spend the system's three
+/// prompts a year. That is why it is free of the install, days-of-use, signal, 60-day and yearly
+/// rules, and holds only two things of its own: once per version, and a wait after the person
+/// pressed the screen's rate button (``ReviewPrompter/markRated()``). Blockers still hold it back,
+/// because a screen right after a paywall or an error is as badly timed as a prompt (R10, R25).
+public struct ReviewScreenRule: Hashable, Sendable {
+
+    /// Elapsed days after ``ReviewPrompter/markRated()`` during which the screen is not shown again,
+    /// even in a new version. Defaults to 120, the value gamification-app's `ReviewAskGate` and
+    /// reading-memory's `ReviewAsk` use for the same screen (rating.md R24). Someone who closed the
+    /// screen without rating sees it again in the next version.
+    public var daysAfterRated: Int
+
+    public init(daysAfterRated: Int = 120) {
+        self.daysAfterRated = daysAfterRated
+    }
+}
+
 /// Every threshold the decision uses, as values the app passes in.
 ///
-/// The defaults follow the research this package was designed from (Apple's HIG and StoreKit
-/// documentation, and the tabisaki review spec): wait a week after install and three separate days
-/// of use, ask at most once per minor version, leave 120 days between requests, and stay at or
-/// under the system's own limit of three per 365 days. Nothing is declared as a moment by default;
-/// until the app lists one, nothing ever asks.
+/// **There is one set of defaults, and it is studio's rating rules** (`knowledge/rating.md`, the R
+/// numbers on each property). An app passes only its moments, and overrides a value only with a
+/// reason it can write down next to it:
+///
+/// ```swift
+/// let policy = ReviewPolicy(moments: [.bookCompleted: ReviewMomentRule()],
+///                           screens: [.afterWhatsNew: ReviewScreenRule()])
+/// ```
+///
+/// Nothing is declared as a moment by default; until the app lists one, nothing ever asks.
 ///
 /// ## The system limit is not a target
 ///
@@ -58,23 +85,44 @@ public struct ReviewPolicy: Sendable, Equatable {
     /// The most prompts iOS shows per app in any 365-day period.
     public static let systemLimitPerYear = 3
 
-    /// A switch to stop all requests without shipping a build, such as from remote configuration.
+    /// How long each built-in blocker holds requests back (rating.md R25): paywall closed 14 days,
+    /// an error 3 days, feedback sent 30 days, the cancel screen opened 90 days.
+    ///
+    /// Add an app's own kinds with `ReviewPolicy.standardCooldowns.merging([...]) { $1 }`.
+    public static let standardCooldowns: [ReviewBlockerKind: ReviewCooldown] = [
+        .paywallDismissed: .days(14),
+        .error: .days(3),
+        .feedbackSent: .days(30),
+        .cancelScreenOpened: .days(90)
+    ]
+
+    /// A switch to stop all requests and screens without shipping a build, such as from remote
+    /// configuration.
     public var isEnabled: Bool
 
     /// The zone in which "a day of use" is counted.
     public var timeZone: TimeZone
 
-    /// Elapsed days since the first recorded launch before any request.
+    /// Elapsed days since the first recorded launch before any request. Default 7 (R9).
     public var minimumDaysSinceInstall: Int
 
-    /// Distinct calendar days on which the app was opened before any request.
+    /// Distinct calendar days on which the app was opened before any request. Default 0: the rating
+    /// rules have no such rule (R9 counts days since install), so it is off unless an app sets it.
     public var minimumActiveDays: Int
 
     /// How many recent days of use are kept. Older ones are dropped from state.
     public var activeDayRetention: Int
 
-    /// The only places that may ask, with what each needs.
+    /// Seconds since this launch (the prompter's first ``ReviewPrompter/markActive()``) before any
+    /// request. Default 30 (R9).
+    public var minimumSecondsSinceLaunch: Int
+
+    /// The only places that may call the system prompt, with what each needs.
     public var moments: [ReviewMomentName: ReviewMomentRule]
+
+    /// The only places that may show the app's own review screen, with what each needs. Kept apart
+    /// from ``moments`` because the two spend different things (see ``ReviewScreenRule``).
+    public var screens: [ReviewMomentName: ReviewScreenRule]
 
     /// The most a single kind counts within one scope (or among unscoped signals), however often it
     /// happens. Kinds without an entry are not capped. `[.checkedIn: 1]` makes ten check-ins on one
@@ -88,22 +136,26 @@ public struct ReviewPolicy: Sendable, Equatable {
     public var unscopedSignalLookbackDays: Int?
 
     /// How long each kind of recorded blocker holds requests back. A recorded kind with no entry
-    /// holds nothing back.
+    /// holds nothing back. Default ``standardCooldowns`` (R25).
     public var cooldowns: [ReviewBlockerKind: ReviewCooldown]
 
-    /// Requests per version, at ``versionGranularity``.
+    /// Requests per version, at ``versionGranularity``. Default 1 (R9: not yet asked in this version).
     public var asksPerVersion: Int
 
-    /// Which part of the version number makes a version new.
+    /// Which part of the version number makes a version new. Default `.minor`, so a fix-only
+    /// release does not earn another request.
     public var versionGranularity: AppVersion.Granularity
 
-    /// Elapsed days required after the previous request.
+    /// Elapsed days required after the previous request. Default 60 (R9): with the system's three
+    /// prompts a year, 60 days apart still uses the whole allowance.
     public var minimumDaysBetweenAsks: Int
 
-    /// Requests in any rolling 365-day window, counting every call.
+    /// Requests in any rolling 365-day window, counting every call. Default
+    /// ``systemLimitPerYear`` (R9).
     public var maximumAsksPerYear: Int
 
-    /// Requests per scope; `nil` for no limit. `1` means "the same trip is never asked about twice".
+    /// Requests per scope; `nil` (the default) for no limit. `1` means "the same trip is never asked
+    /// about twice". The rating rules have no per-scope rule; apps with scopes set it.
     public var asksPerScope: Int?
 
     /// How long signals are kept in state at all.
@@ -111,19 +163,21 @@ public struct ReviewPolicy: Sendable, Equatable {
 
     public init(
         isEnabled: Bool = true,
-        timeZone: TimeZone,
+        timeZone: TimeZone = .current,
         minimumDaysSinceInstall: Int = 7,
-        minimumActiveDays: Int = 3,
+        minimumActiveDays: Int = 0,
         activeDayRetention: Int = 60,
-        moments: [ReviewMomentName: ReviewMomentRule],
+        minimumSecondsSinceLaunch: Int = 30,
+        moments: [ReviewMomentName: ReviewMomentRule] = [:],
+        screens: [ReviewMomentName: ReviewScreenRule] = [:],
         signalCapPerScope: [ReviewSignalKind: Int] = [:],
         unscopedSignalLookbackDays: Int? = nil,
-        cooldowns: [ReviewBlockerKind: ReviewCooldown] = [:],
+        cooldowns: [ReviewBlockerKind: ReviewCooldown] = ReviewPolicy.standardCooldowns,
         asksPerVersion: Int = 1,
         versionGranularity: AppVersion.Granularity = .minor,
-        minimumDaysBetweenAsks: Int = 120,
+        minimumDaysBetweenAsks: Int = 60,
         maximumAsksPerYear: Int = ReviewPolicy.systemLimitPerYear,
-        asksPerScope: Int? = 1,
+        asksPerScope: Int? = nil,
         signalRetentionDays: Int = 365
     ) {
         self.isEnabled = isEnabled
@@ -131,7 +185,9 @@ public struct ReviewPolicy: Sendable, Equatable {
         self.minimumDaysSinceInstall = minimumDaysSinceInstall
         self.minimumActiveDays = minimumActiveDays
         self.activeDayRetention = activeDayRetention
+        self.minimumSecondsSinceLaunch = minimumSecondsSinceLaunch
         self.moments = moments
+        self.screens = screens
         self.signalCapPerScope = signalCapPerScope
         self.unscopedSignalLookbackDays = unscopedSignalLookbackDays
         self.cooldowns = cooldowns

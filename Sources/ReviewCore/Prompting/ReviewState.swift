@@ -27,6 +27,10 @@ public struct ReviewState: Sendable, Equatable {
     public private(set) var blockers: [ReviewBlocker]
     /// Calls to the system's review request, oldest first.
     public private(set) var asks: [ReviewAsk]
+    /// Times the app's own review screen was allowed to appear, oldest first. Never counted as asks.
+    public private(set) var screenShows: [ReviewScreenShow]
+    /// The last time the person pressed the own review screen's rate button, or `nil`.
+    public var ratedAt: Date?
 
     /// Fields from a newer build, as JSON, written back as they were.
     var unknownFields: [String: Data]
@@ -36,13 +40,17 @@ public struct ReviewState: Sendable, Equatable {
         activeDays: [ReviewDay] = [],
         signals: [ReviewSignal] = [],
         blockers: [ReviewBlocker] = [],
-        asks: [ReviewAsk] = []
+        asks: [ReviewAsk] = [],
+        screenShows: [ReviewScreenShow] = [],
+        ratedAt: Date? = nil
     ) {
         self.installedAt = installedAt
         self.activeDays = Array(Set(activeDays)).sorted()
         self.signals = signals.sorted { $0.at < $1.at }
         self.blockers = []
         self.asks = asks.sorted { $0.at < $1.at }
+        self.screenShows = screenShows.sorted { $0.at < $1.at }
+        self.ratedAt = ratedAt
         self.unknownFields = [:]
         for blocker in blockers { record(blocker) }
     }
@@ -91,6 +99,11 @@ public struct ReviewState: Sendable, Equatable {
         asks.insert(ask, at: index)
     }
 
+    public mutating func record(_ show: ReviewScreenShow) {
+        let index = screenShows.lastIndex { $0.at <= show.at }.map { $0 + 1 } ?? 0
+        screenShows.insert(show, at: index)
+    }
+
     /// Drops the scope's signals and blockers, for a trip or document that was deleted.
     ///
     /// Requests made in the scope stay: they still count toward the version and yearly limits.
@@ -103,7 +116,7 @@ public struct ReviewState: Sendable, Equatable {
     ///
     /// - Signals older than ``ReviewPolicy/signalRetentionDays``
     /// - Blockers whose cooldown has run out (or that have none), except those that hold their scope
-    /// - Requests older than 365 days, except the latest one of each version
+    /// - Requests and own-screen shows older than 365 days, except the latest one of each version
     public mutating func prune(at now: Date, policy: ReviewPolicy) {
         let signalHorizon = now.addingTimeInterval(-Double(policy.signalRetentionDays) * .day)
         signals.removeAll { $0.at < signalHorizon }
@@ -122,6 +135,16 @@ public struct ReviewState: Sendable, Equatable {
         }
         asks.removeAll { ask in
             ask.at < yearAgo && latestPerVersion[ask.version.truncated(to: policy.versionGranularity)] != ask.at
+        }
+
+        var latestShowPerVersion: [AppVersion: Date] = [:]
+        for show in screenShows {
+            let key = show.version.truncated(to: policy.versionGranularity)
+            latestShowPerVersion[key] = max(latestShowPerVersion[key] ?? show.at, show.at)
+        }
+        screenShows.removeAll { show in
+            show.at < yearAgo
+                && latestShowPerVersion[show.version.truncated(to: policy.versionGranularity)] != show.at
         }
     }
 
@@ -180,7 +203,7 @@ public struct ReviewState: Sendable, Equatable {
 
     private struct StoredForm: Codable {
         enum CodingKeys: String, CodingKey, CaseIterable {
-            case schema, installedAt, activeDays, signals, blockers, asks
+            case schema, installedAt, activeDays, signals, blockers, asks, screenShows, ratedAt
         }
 
         var schema: Int
@@ -189,6 +212,10 @@ public struct ReviewState: Sendable, Equatable {
         var signals: [ReviewSignal]
         var blockers: [ReviewBlocker]
         var asks: [ReviewAsk]
+        // Added in 0.2.0 without a schema bump: a 0.1 state has neither, and a 0.1 build keeps
+        // both as unknown fields and writes them back.
+        var screenShows: [ReviewScreenShow]?
+        var ratedAt: Date?
 
         init(_ state: ReviewState) {
             schema = ReviewState.schemaVersion
@@ -197,11 +224,13 @@ public struct ReviewState: Sendable, Equatable {
             signals = state.signals
             blockers = state.blockers
             asks = state.asks
+            screenShows = state.screenShows.isEmpty ? nil : state.screenShows
+            ratedAt = state.ratedAt
         }
 
         var state: ReviewState {
             ReviewState(installedAt: installedAt, activeDays: activeDays, signals: signals,
-                        blockers: blockers, asks: asks)
+                        blockers: blockers, asks: asks, screenShows: screenShows ?? [], ratedAt: ratedAt)
         }
     }
 }

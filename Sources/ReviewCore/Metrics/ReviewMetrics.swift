@@ -20,18 +20,33 @@ public enum ReviewMetricValue: Hashable, Sendable, CustomStringConvertible {
 
 /// Something worth measuring about requests and feedback.
 ///
-/// The prompter sends the first four itself. The rest are moments only the app sees, sent through
+/// The prompter sends the first six itself. The rest are moments only the app sees, sent through
 /// the same port so that everything about ratings and feedback reads as one set.
+///
+/// ## The common catalog
+///
+/// Only ``requested(_:ordinal:)`` is in the common analytics catalog (`swift-analytics`
+/// `Schema/common/common.yaml`): `review_requested` with the one parameter `moment`, which is what
+/// studio counts across apps. ``isInCommonCatalog`` marks it, so an app that sends only catalog
+/// events forwards that one. The others are optional and app-specific; an app that sends them
+/// declares them in its own catalog.
 public enum ReviewMetricEvent: Hashable, Sendable {
 
-    /// A declared moment was reached and decided.
+    /// A declared system-prompt moment was reached and decided.
     case evaluated(ReviewMoment, ReviewDecision)
-    /// The system's request was called. `ordinal` is how many calls this device's state now holds.
-    case requested(ReviewMoment, version: AppVersion, ordinal: Int)
+    /// The system's request was called (`review_requested`). Whether a prompt appeared is unknown.
+    /// `ordinal` is how many calls this device's state now holds; it is not a catalog parameter,
+    /// and an app that wants it (R20's `count`) adds it in its own catalog.
+    case requested(ReviewMoment, ordinal: Int)
     /// A request was dropped before reaching the system.
     case abandoned(ReviewMoment, ReviewAbandonment)
     /// Stored state could not be read or written.
     case stateUnavailable(ReviewStoreError)
+    /// A declared own-screen moment was reached and decided.
+    case screenEvaluated(ReviewScreenMoment, ReviewDecision)
+    /// The app's own review screen was allowed to appear. Not a `review_requested`: the system was
+    /// not called.
+    case screenShown(ReviewScreenMoment)
     /// The person opened the write-review page from the app's own link.
     case writeReviewLinkOpened
     /// The feedback screen was opened, from `source` (such as `settings` or `error_screen`).
@@ -43,9 +58,11 @@ public enum ReviewMetricEvent: Hashable, Sendable {
     public var name: String {
         switch self {
         case .evaluated: "review_prompt_evaluated"
-        case .requested: "review_prompt_requested"
+        case .requested: "review_requested"
         case .abandoned: "review_prompt_abandoned"
         case .stateUnavailable: "review_state_unavailable"
+        case .screenEvaluated: "review_screen_evaluated"
+        case .screenShown: "review_screen_shown"
         case .writeReviewLinkOpened: "review_link_opened"
         case .feedbackOpened: "feedback_opened"
         case .feedbackSent: "feedback_sent"
@@ -66,12 +83,21 @@ public enum ReviewMetricEvent: Hashable, Sendable {
                 parameters["reason"] = .text(reason.code)
             }
             return parameters
-        case let .requested(moment, version, ordinal):
-            return [
+        case let .requested(moment, _):
+            // Exactly the common catalog's parameters. The app version is the envelope's.
+            return ["moment": .text(moment.name.rawValue)]
+        case let .screenEvaluated(moment, decision):
+            var parameters: [String: ReviewMetricValue] = [
                 "moment": .text(moment.name.rawValue),
-                "app_version": .text(version.description),
-                "nth": .count(ordinal)
+                "shown": .flag(decision == .ask)
             ]
+            if case let .skip(reason) = decision {
+                parameters["stage"] = .text(reason.stage.rawValue)
+                parameters["reason"] = .text(reason.code)
+            }
+            return parameters
+        case let .screenShown(moment):
+            return ["moment": .text(moment.name.rawValue)]
         case let .abandoned(moment, reason):
             return ["moment": .text(moment.name.rawValue), "reason": .text(reason.rawValue)]
         case let .stateUnavailable(error):
@@ -95,12 +121,38 @@ public enum ReviewMetricEvent: Hashable, Sendable {
     }
 }
 
+extension ReviewMetricEvent {
+    /// `true` for the events in the common analytics catalog (only `review_requested`).
+    public var isInCommonCatalog: Bool {
+        if case .requested = self { return true }
+        return false
+    }
+}
+
 /// Where metrics go. Fire-and-forget: nothing returns and nothing throws.
 ///
 /// The package does not depend on `swift-analytics`; a bridge is a few lines in the app (see the
 /// README).
 public protocol ReviewMetrics: Sendable {
     func record(_ event: ReviewMetricEvent)
+}
+
+/// Hands every metric to a closure, so an app wires its analytics without declaring a type.
+///
+/// ```swift
+/// let metrics = ReviewMetricsHandler { event in
+///     guard event.isInCommonCatalog else { return }
+///     analytics.track(name: event.name, parameters: event.parameters)
+/// }
+/// ```
+public struct ReviewMetricsHandler: ReviewMetrics {
+    private let handler: @Sendable (ReviewMetricEvent) -> Void
+
+    public init(_ handler: @escaping @Sendable (ReviewMetricEvent) -> Void) {
+        self.handler = handler
+    }
+
+    public func record(_ event: ReviewMetricEvent) { handler(event) }
 }
 
 /// Discards every metric.

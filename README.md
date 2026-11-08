@@ -23,8 +23,16 @@ holds requests back and for how long, and the limits. One function answers *ask*
   3.2.2(x), and §3's "filtered" feedback)
 - **A pure decision with reasons.** `ReviewRules.decide(at:version:moment:state:policy:)` reads no
   clock, time zone or store, and returns the first failing rule: prerequisites → blockers → limits
-- **Thresholds as values.** Days since install, days of use (in a time zone you choose), signals per
-  moment, cooldowns per blocker, once per version, days between requests, a rolling 365-day cap
+- **Thresholds as values, with one set of defaults.** The defaults are studio's rating rules: 7 days
+  after install, once per version, 60 days apart, 3 a year, 30 seconds into the launch, the third
+  good outcome, quiet after a paywall (14 days), an error (3), feedback (30) and the cancel screen (90).
+  Pass your moments; override a value only with a reason
+- **Two kinds of moment.** `ReviewMoment` calls the system prompt. `ReviewScreenMoment` decides
+  whether your own review screen may appear (after What's New, say): it never reaches the system,
+  so only once-per-version, blockers and a wait after "rated" apply
+- **`AppVersion`.** The one version type for the family: parse, compare, print
+- **A metrics hook.** A protocol or a closure; `review_requested { moment }` matches the common
+  analytics catalog
 - **Every call counts.** The system never says whether it showed a prompt, so calls are counted,
   shown or not; a request the screen dropped before calling is not
 - **Device-only, versioned state.** JSON with a schema number; a newer schema is never overwritten,
@@ -48,15 +56,12 @@ extension ReviewMomentName {
     static let afterJournal: Self = "after_journal"
 }
 extension ReviewBlockerKind {
-    static let paywallDismissed: Self = "paywall_dismissed"
-    static let error: Self = "error"
-    static let offline: Self = "offline"
+    static let offline: Self = "offline"   // paywallDismissed, error, … are built in
 }
 
 let policy = ReviewPolicy(
-    timeZone: .current,
-    moments: [.afterJournal: ReviewMomentRule(minimumSignals: 2)],
-    cooldowns: [.paywallDismissed: .days(14), .error: .days(3)]
+    moments: [.afterJournal: ReviewMomentRule()],     // the third good outcome
+    screens: [.afterWhatsNew: ReviewScreenRule()]     // optional: your own screen
 )
 ```
 
@@ -75,7 +80,11 @@ let prompter = ReviewPrompter(
     policy: policy,
     version: AppVersion(bundle: .main) ?? AppVersion(major: 0),
     store: UserDefaultsReviewStateStore(),
-    asker: bridge
+    asker: bridge,
+    metrics: ReviewMetricsHandler { event in
+        guard event.isInCommonCatalog else { return }   // review_requested { moment }
+        analytics.track(name: event.name, parameters: event.parameters)
+    }
 )
 ```
 
@@ -87,6 +96,10 @@ await prompter.record(.tripBooked, in: ReviewScope(trip.id))
 await prompter.block(.paywallDismissed)
 await prompter.reach(ReviewMoment(.afterJournal, in: ReviewScope(trip.id),
                                   ongoing: isOffline ? [.offline] : []))
+
+// Your own screen after What's New: the system is never called.
+if await prompter.present(ReviewScreenMoment(.afterWhatsNew)) == .ask { showReviewScreen = true }
+await prompter.markRated()                         // when its rate button is pressed
 ```
 
 A settings row the person presses themselves:
@@ -97,6 +110,22 @@ if let id = AppStoreID(appStoreID) {
 }
 ```
 
+## Moving an app's own code onto this package
+
+1. Depend on `.upToNextMinor(from: "0.2.0")`, delete your own `AppVersion` and use `ReviewCore`'s
+2. Write `ReviewPolicy(moments: …)` with your moment and nothing else; keep a value only if you can
+   say why (tabisaki keeps 3 days of use, 120 days and once per trip)
+3. Replace your gate: the good outcome → `record`, paywall closed / error → `block(.paywallDismissed)` /
+   `block(.error)`, the moment → `reach`. A settings button that called `requestReview` becomes
+   `WriteReviewLink` (R7)
+4. An own review screen after What's New (gamification-app's `ReviewAskGate`, reading-memory's
+   `ReviewMoment.screenIsDue`) → `present(ReviewScreenMoment(.afterWhatsNew))` and `markRated()`
+5. Carry the old record over once: build a `ReviewState(installedAt:asks:ratedAt:)` from your old
+   keys and `save` it through the store, so nobody is asked twice in the same version or waits 7
+   days again
+6. Rename your `review_requested` (or `review_prompt_requested`) event to the catalog's
+   `review_requested { moment }`
+
 ## Documentation
 
 [DESIGN.md](./DESIGN.md) covers the rules, their order, the state format, the reasons behind the
@@ -105,7 +134,7 @@ non-goals with citations, the analytics bridge, and how an app integrates it.
 ## Installation
 
 ```swift
-.package(url: "https://github.com/no-problem-dev/swift-review.git", .upToNextMinor(from: "0.1.0"))
+.package(url: "https://github.com/no-problem-dev/swift-review.git", .upToNextMinor(from: "0.2.0"))
 ```
 
 | Product | Contents | Depends on |

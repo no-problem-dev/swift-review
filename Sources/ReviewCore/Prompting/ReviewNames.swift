@@ -1,7 +1,7 @@
 /// A kind of good outcome the app counts toward asking for a rating, such as "booked a hotel" or
 /// "saved a trip journal".
 ///
-/// The package has no built-in kinds. Each app declares its own, usually as static constants:
+/// The package has no built-in signal kinds. Each app declares its own, usually as static constants:
 ///
 /// ```swift
 /// extension ReviewSignalKind {
@@ -32,6 +32,10 @@ public struct ReviewSignalKind: RawRepresentable, Hashable, Comparable, Sendable
 /// The same kind can be used both as a recorded event (``ReviewPrompter/block(_:in:)``, held back
 /// for the ``ReviewCooldown`` the policy gives it) and as a condition in effect right now
 /// (``ReviewMoment/ongoing``).
+///
+/// The kinds in studio's rating rules are built in (``paywallDismissed``, ``error``,
+/// ``feedbackSent``, ``cancelScreenOpened``, ``purchased``, ``paywallShown``) and
+/// ``ReviewPolicy/standardCooldowns`` gives the first four their days. Apps add their own the same way.
 public struct ReviewBlockerKind: RawRepresentable, Hashable, Comparable, Sendable, Codable,
     ExpressibleByStringLiteral, CustomStringConvertible {
 
@@ -49,7 +53,8 @@ public struct ReviewBlockerKind: RawRepresentable, Hashable, Comparable, Sendabl
 /// The name of a place in the app where asking is allowed at all, such as "after saving the trip
 /// journal".
 ///
-/// Only moments declared in ``ReviewPolicy/moments`` can ever lead to a request; any other name is
+/// Only moments declared in ``ReviewPolicy/moments`` (system prompt) or ``ReviewPolicy/screens``
+/// (the app's own screen) can ever lead to anything; any other name is
 /// refused with ``ReviewSkipReason/undeclaredMoment(_:)``. That keeps "where do we ask" a list you
 /// can read in one place, instead of a property of whichever screen happens to call.
 public struct ReviewMomentName: RawRepresentable, Hashable, Comparable, Sendable, Codable,

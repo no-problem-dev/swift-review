@@ -123,12 +123,12 @@ extension View {
     /// - Parameters:
     ///   - bridge: The asker the prompter was given
     ///   - suppressed: `true` while something is presented over the screen
-    ///   - delay: How long the screen must stay settled first. Apple's sample waits a moment after the
-    ///     task ends; one second is the default.
+    ///   - delay: How long the screen must stay settled first. The default 1.8 seconds is inside
+    ///     studio's rating rule R8 ("1.5 to 2 seconds after the animation stops").
     public func reviewRequests(
         _ bridge: ReviewRequestBridge,
         suppressed: Bool = false,
-        delay: Duration = .seconds(1)
+        delay: Duration = .milliseconds(1800)
     ) -> some View {
         modifier(ReviewRequestHost(bridge: bridge, suppressed: suppressed, delay: delay))
     }

@@ -86,3 +86,47 @@ public struct ReviewMoment: Hashable, Sendable {
         self.unmet = unmet
     }
 }
+
+/// A place where the app may show **its own** review screen, together with what is true right now.
+///
+/// This is the second kind of moment, and it is a separate type on purpose. A ``ReviewMoment``
+/// calls the system prompt and spends one of its three prompts a year; a `ReviewScreenMoment`
+/// never reaches the system and spends nothing, so it is decided by its own, smaller rule
+/// (``ReviewScreenRule``) and goes through ``ReviewPrompter/present(_:)``, which has no asker.
+/// The compiler therefore keeps "show our screen" from ever turning into a system call.
+///
+/// The screen itself is the app's (rating.md R24: try it in one app and read the review outcome
+/// before spreading it). The package only decides whether it may appear now.
+///
+/// ```swift
+/// // After the What's New sheet closed, for someone who upgraded:
+/// if await prompter.present(ReviewScreenMoment(.afterWhatsNew)) == .ask {
+///     showReviewScreen = true
+/// }
+/// ```
+public struct ReviewScreenMoment: Hashable, Sendable {
+
+    public var name: ReviewMomentName
+    /// Conditions in effect at this instant that rule the screen out. They are not stored.
+    public var ongoing: Set<ReviewBlockerKind>
+
+    public init(_ name: ReviewMomentName, ongoing: Set<ReviewBlockerKind> = []) {
+        self.name = name
+        self.ongoing = ongoing
+    }
+}
+
+/// One time the app's own review screen was allowed to appear. Kept apart from ``ReviewAsk``,
+/// because it does not count toward any system limit.
+public struct ReviewScreenShow: Hashable, Sendable, Codable {
+
+    public var at: Date
+    public var version: AppVersion
+    public var moment: ReviewMomentName
+
+    public init(at: Date, version: AppVersion, moment: ReviewMomentName) {
+        self.at = at
+        self.version = version
+        self.moment = moment
+    }
+}
