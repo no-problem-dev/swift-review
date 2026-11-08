@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `UserDefaultsReviewStateStore(defaults:key:)` takes a `UserDefaults` instance the app holds
+  (an App Group suite, or one a test or scenario set up), `.standard` by default. The store stays
+  `Sendable`. It replaces `init(key:)`, so `init()` and `init(key:)` calls compile as before;
+  `init?(suiteName:key:)` is unchanged.
+
 ## [0.2.0] - 2026-11-08
 
 The base for every app in the family (studio `docs/app-shared-packages-design-2026-11-08.md`).

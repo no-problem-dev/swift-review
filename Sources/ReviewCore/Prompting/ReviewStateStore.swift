@@ -39,39 +39,50 @@ public protocol ReviewStateStore: Sendable {
 
 /// A ``ReviewStateStore`` that keeps the state as JSON under one `UserDefaults` key.
 ///
-/// It holds the suite's **name**, not a `UserDefaults` instance, and opens the suite on each call:
-/// `UserDefaults` is not `Sendable`, and the name is all that is needed to reach the same storage.
+/// Give it a suite's **name**, or a `UserDefaults` instance the app already holds (such as an App
+/// Group suite, or one a test or scenario set up). With a name it opens the suite on each call.
 /// Tests pass a suite of their own, since tests running in parallel against `standard` would write
 /// over each other.
 ///
 /// ```swift
 /// let store = UserDefaultsReviewStateStore()                                     // standard
 /// let shared = UserDefaultsReviewStateStore(suiteName: "group.com.example.app")  // app group
+/// let held = UserDefaultsReviewStateStore(defaults: appGroupDefaults)            // an instance
 /// ```
 public struct UserDefaultsReviewStateStore: ReviewStateStore {
 
-    private let suiteName: String?
+    private let source: Source
     private let key: String
-
-    /// The store in `UserDefaults.standard`.
-    ///
-    /// - Parameter key: The key to store under. Change it only to avoid a collision.
-    public init(key: String = "review.state") {
-        self.suiteName = nil
-        self.key = key
-    }
 
     /// The store in a named suite, or `nil` when `UserDefaults` refuses the name (such as the app's
     /// own bundle identifier, or `NSGlobalDomain`).
     public init?(suiteName: String, key: String = "review.state") {
         guard UserDefaults(suiteName: suiteName) != nil else { return nil }
-        self.suiteName = suiteName
+        self.source = .suite(suiteName)
+        self.key = key
+    }
+
+    /// The store in a `UserDefaults` instance the app holds, `UserDefaults.standard` by default.
+    ///
+    /// The instance is kept and used from whichever thread calls the store. `UserDefaults` is
+    /// documented as thread-safe, which is why the store stays `Sendable`.
+    ///
+    /// - Parameters:
+    ///   - defaults: Where to store.
+    ///   - key: The key to store under. Change it only to avoid a collision.
+    public init(defaults: UserDefaults = .standard, key: String = "review.state") {
+        self.source = .instance(SharedDefaults(defaults))
         self.key = key
     }
 
     private var defaults: UserDefaults {
-        // The name was accepted in init, and UserDefaults refuses a name only by what it is.
-        suiteName.map { UserDefaults(suiteName: $0)! } ?? .standard
+        switch source {
+        case let .suite(name):
+            // The name was accepted in init, and UserDefaults refuses a name only by what it is.
+            UserDefaults(suiteName: name)!
+        case let .instance(shared):
+            shared.defaults
+        }
     }
 
     public func load() throws(ReviewStoreError) -> ReviewState? {
@@ -86,6 +97,17 @@ public struct UserDefaultsReviewStateStore: ReviewStateStore {
 
     public func clear() {
         defaults.removeObject(forKey: key)
+    }
+
+    private enum Source: Sendable {
+        case suite(String)
+        case instance(SharedDefaults)
+    }
+
+    /// `UserDefaults` is thread-safe (Apple's documentation) but not marked `Sendable` in every SDK.
+    private struct SharedDefaults: @unchecked Sendable {
+        let defaults: UserDefaults
+        init(_ defaults: UserDefaults) { self.defaults = defaults }
     }
 }
 
