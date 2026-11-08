@@ -2,6 +2,9 @@ import Foundation
 import ReviewCore
 
 /// The tabisaki spec's values, used as one realistic policy across the tests.
+///
+/// The blocker names are declared here instead of using the package's built-in ones, so these tests
+/// keep pinning the rules rather than the names.
 enum Fixture {
 
     static let tokyo = TimeZone(identifier: "Asia/Tokyo")!
@@ -59,9 +62,12 @@ enum Fixture {
         versionGranularity: AppVersion.Granularity = .minor,
         maximumAsksPerYear: Int = 3
     ) -> ReviewPolicy {
+        // tabisaki's values, not the package defaults: three days of use, 120 days between asks,
+        // once per trip. The defaults have their own test.
         ReviewPolicy(
             isEnabled: isEnabled,
             timeZone: timeZone,
+            minimumActiveDays: 3,
             moments: [
                 journalSaved: ReviewMomentRule(minimumSignals: 2),
                 splitSettled: ReviewMomentRule(minimumSignals: 2),
@@ -78,7 +84,9 @@ enum Fixture {
                 cancelScreen: .days(90)
             ],
             versionGranularity: versionGranularity,
-            maximumAsksPerYear: maximumAsksPerYear
+            minimumDaysBetweenAsks: 120,
+            maximumAsksPerYear: maximumAsksPerYear,
+            asksPerScope: 1
         )
     }
 

@@ -19,7 +19,10 @@ App Store の評価を、iOS の評価のダイアログだけで、アプリが
 
 - **iOS のダイアログだけ。** 画面の側から `RequestReviewAction` を呼びます。自前のダイアログ・前置き・満足度での分岐・見返りの口はありません（審査 5.6.1・3.2.2(x)・3章の「filtered」）
 - **理由つきの純粋な判定。** `ReviewRules.decide(at:version:moment:state:policy:)` は時計も時間帯も置き場所も読まず、前提 → 止める出来事 → 上限 の順で最初に当たった理由を返します
-- **条件は値。** インストールからの日数・開いた日の数（数える時間帯はアプリが決める）・場面ごとの合図の数・出来事ごとの期間・版ごとの回数・間の日数・365日の回数
+- **条件は値で、既定は1つ。** 既定は studio の rating.md の値です。インストールから7日・版ごとに1回・前回から60日・1年に3回・起動から30秒・「役に立った」の3回目・ペイウォールを閉じて14日／エラーから3日／要望を送って30日／解約の画面から90日。アプリは場面だけを渡し、値を変えるのは理由を書けるときだけ
+- **瞬間は2種類。** `ReviewMoment` は OS の評価のダイアログを呼びます。`ReviewScreenMoment` はアプリ自前の評価のお願いの画面を出してよいか（お知らせの後など）を決めるだけで、OS は呼びません。なので版ごとに1回・止める出来事・「星をつける」の後の日数だけを見ます
+- **`AppVersion`。** 一家の版の型の正本。読む・比べる・表すだけ
+- **計測の口。** protocol かクロージャ。`review_requested { moment }` は共通カタログと同じ形
 - **呼んだ回はすべて数える。** iOS は出したかを返さないので、出たかに関わらず数えます。画面が呼ぶ前に取りやめた回は数えません
 - **端末だけの、版の番号つきの状態。** 新しい版が書いた形は書き換えず、知らない項目は残し、アカウントの削除で消します
 - **要望は別に受け取る。** 診断の情報は本人が選んだときだけ添え、表示した行と送る行は同じです。送り口はメールの作成画面（スクリーンショットを1枚添えられる。メールの設定が無ければ添付を外した `mailto:`）と、アプリの通信の関数で送る HTTP
@@ -40,15 +43,12 @@ extension ReviewMomentName {
     static let afterJournal: Self = "after_journal"
 }
 extension ReviewBlockerKind {
-    static let paywallDismissed: Self = "paywall_dismissed"
-    static let error: Self = "error"
-    static let offline: Self = "offline"
+    static let offline: Self = "offline"   // paywallDismissed・error などは組み込み
 }
 
 let policy = ReviewPolicy(
-    timeZone: TimeZone(identifier: "Asia/Tokyo")!,
-    moments: [.afterJournal: ReviewMomentRule(minimumSignals: 2)],
-    cooldowns: [.paywallDismissed: .days(14), .error: .days(3)]
+    moments: [.afterJournal: ReviewMomentRule()],     // 「役に立った」の3回目
+    screens: [.afterWhatsNew: ReviewScreenRule()]     // 任意: 自前の画面
 )
 ```
 
@@ -67,7 +67,11 @@ let prompter = ReviewPrompter(
     policy: policy,
     version: AppVersion(bundle: .main) ?? AppVersion(major: 0),
     store: UserDefaultsReviewStateStore(),
-    asker: bridge
+    asker: bridge,
+    metrics: ReviewMetricsHandler { event in
+        guard event.isInCommonCatalog else { return }   // review_requested { moment }
+        analytics.track(name: event.name, parameters: event.parameters)
+    }
 )
 ```
 
@@ -79,6 +83,10 @@ await prompter.record(.tripBooked, in: ReviewScope(trip.id))
 await prompter.block(.paywallDismissed)
 await prompter.reach(ReviewMoment(.afterJournal, in: ReviewScope(trip.id),
                                   ongoing: isOffline ? [.offline] : []))
+
+// お知らせの後の自前の画面。OS は呼ばない。
+if await prompter.present(ReviewScreenMoment(.afterWhatsNew)) == .ask { showReviewScreen = true }
+await prompter.markRated()                         // 画面の「星をつける」を押したとき
 ```
 
 本人が自分で押す設定の行には、書く画面のリンクを置きます。
@@ -89,6 +97,15 @@ if let id = AppStoreID(appStoreID) {
 }
 ```
 
+## アプリの自前の実装から移す
+
+1. `.upToNextMinor(from: "0.2.0")` に頼り、自前の `AppVersion` を消して `ReviewCore` の物を使う
+2. `ReviewPolicy(moments: …)` に場面だけを書く。値を残すのは理由を書けるときだけ（tabisaki は開いた日3日・120日・旅行ごとに1回を残す）
+3. 自前の判定を置き換える。「役に立った」→ `record`、ペイウォールを閉じた・エラー → `block(.paywallDismissed)`・`block(.error)`、頼む場面 → `reach`。設定のボタンから `requestReview` を呼んでいたら `WriteReviewLink` に替える（R7）
+4. お知らせの後の自前の画面（ごほうび習慣の `ReviewAskGate`・読書メモリーの `ReviewMoment.screenIsDue`）→ `present(ReviewScreenMoment(.afterWhatsNew))` と `markRated()`
+5. 古い記録は一度だけ移す。古いキーから `ReviewState(installedAt:asks:ratedAt:)` を作り、置き場所に `save` する。同じ版で二度頼んだり、7日をやり直したりしないため
+6. 計測の `review_requested`（または `review_prompt_requested`）を、カタログの `review_requested { moment }` に合わせる
+
 ## ドキュメント
 
 規則とその順番・状態の形・作らないものの理由と出典・計測の橋・アプリへの組み込み方は [DESIGN.md](./DESIGN.md) にあります（末尾に日本語の要約）。
@@ -96,7 +113,7 @@ if let id = AppStoreID(appStoreID) {
 ## 導入
 
 ```swift
-.package(url: "https://github.com/no-problem-dev/swift-review.git", .upToNextMinor(from: "0.1.0"))
+.package(url: "https://github.com/no-problem-dev/swift-review.git", .upToNextMinor(from: "0.2.0"))
 ```
 
 | プロダクト | 中身 | 依存 |

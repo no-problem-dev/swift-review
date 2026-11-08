@@ -1,9 +1,12 @@
 import Foundation
 
-/// Whether a moment may call the system's review request, and if not, the first reason why.
+/// Whether a moment may go ahead, and if not, the first reason why.
+///
+/// For a ``ReviewMoment`` "go ahead" means calling the system prompt; for a ``ReviewScreenMoment``
+/// it means showing the app's own review screen.
 public enum ReviewDecision: Hashable, Sendable {
 
-    /// Call the system now. The system still decides whether a prompt appears.
+    /// Go ahead now. For the system prompt, the system still decides whether a prompt appears.
     case ask
 
     /// Do not call. The reason is the first rule that failed, in the order prerequisites →
@@ -48,6 +51,8 @@ public enum ReviewSkipReason: Hashable, Sendable {
     case ongoing(ReviewBlockerKind)
     /// A recorded blocker is still cooling down. `until` is `nil` while it holds for the whole scope.
     case coolingDown(ReviewBlockerKind, until: Date?)
+    /// This launch began too recently (``ReviewPolicy/minimumSecondsSinceLaunch``).
+    case tooSoonAfterLaunch(until: Date)
 
     // MARK: Limits
 
@@ -61,6 +66,10 @@ public enum ReviewSkipReason: Hashable, Sendable {
     case yearlyLimitReached(until: Date)
     /// Another request is waiting for the screen right now.
     case askInProgress
+    /// The app's own review screen was already shown in this version.
+    case alreadyShownThisVersion(AppVersion)
+    /// The person pressed the own screen's rate button too recently (``ReviewScreenRule/daysAfterRated``).
+    case ratedRecently(until: Date)
 
     /// Which group of rules the reason belongs to.
     public enum Stage: String, Sendable, Hashable {
@@ -74,10 +83,10 @@ public enum ReviewSkipReason: Hashable, Sendable {
         case .disabled, .undeclaredMoment, .stateUnavailable, .tooSoonAfterInstall, .tooFewActiveDays,
              .requirementUnmet, .tooFewSignals:
             .prerequisite
-        case .ongoing, .coolingDown:
+        case .ongoing, .coolingDown, .tooSoonAfterLaunch:
             .blocker
         case .alreadyAskedThisVersion, .alreadyAskedInScope, .tooSoonAfterLastAsk, .yearlyLimitReached,
-             .askInProgress:
+             .askInProgress, .alreadyShownThisVersion, .ratedRecently:
             .limit
         }
     }
@@ -95,11 +104,14 @@ public enum ReviewSkipReason: Hashable, Sendable {
         case .tooFewSignals: "too_few_signals"
         case let .ongoing(kind): kind.rawValue
         case let .coolingDown(kind, _): kind.rawValue
+        case .tooSoonAfterLaunch: "too_soon_after_launch"
         case .alreadyAskedThisVersion: "already_asked_this_version"
         case .alreadyAskedInScope: "already_asked_in_scope"
         case .tooSoonAfterLastAsk: "too_soon_after_last_ask"
         case .yearlyLimitReached: "yearly_limit_reached"
         case .askInProgress: "ask_in_progress"
+        case .alreadyShownThisVersion: "already_shown_this_version"
+        case .ratedRecently: "rated_recently"
         }
     }
 }

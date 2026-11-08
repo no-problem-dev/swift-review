@@ -2,6 +2,18 @@ import Foundation
 
 /// The marketing version of the app (`CFBundleShortVersionString`), such as `1.4.2`.
 ///
+/// **This is the one version type for the app family.** Apps and packages that compare versions
+/// (What's New, server switches, "once per version") use it instead of keeping their own. It only
+/// parses, compares and prints; telling a fresh install from an upgrade belongs to whoever stores
+/// the previous version (swift-app-launch).
+///
+/// - `"1.6"`, `"1.6.0"` and `AppVersion(major: 1, minor: 6)` are the same version
+/// - Comparison is numeric part by part, so `1.10.0` is newer than `1.9.0`
+/// - ``description`` always prints three parts (`"1.6.0"`), which is also the stored form
+/// - It is deliberately **not** `ExpressibleByStringLiteral`: with that conformance,
+///   `AppVersion("2.1b")` would pick the literal initialiser (SE-0213) and crash instead of
+///   returning `nil`. Write `AppVersion(major: 3, minor: 2)` for a version in code
+///
 /// "Once per version" depends on which part of the number counts as a new version. A fix-only
 /// release (`1.4.2` → `1.4.3`) usually should not earn another request; see ``Granularity``.
 public struct AppVersion: Hashable, Comparable, Sendable, Codable, CustomStringConvertible {
@@ -34,7 +46,7 @@ public struct AppVersion: Hashable, Comparable, Sendable, Codable, CustomStringC
     }
 
     /// Reads `CFBundleShortVersionString` from a bundle, or `nil` when it is missing or unreadable.
-    public init?(bundle: Bundle) {
+    public init?(bundle: Bundle = .main) {
         guard let text = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String else {
             return nil
         }
@@ -42,6 +54,12 @@ public struct AppVersion: Hashable, Comparable, Sendable, Codable, CustomStringC
     }
 
     public var description: String { "\(major).\(minor).\(patch)" }
+
+    /// `true` when `self` and `other` are the same version at `granularity`, such as `1.4.0` and
+    /// `1.4.3` at `.minor`.
+    public func isSame(as other: AppVersion, at granularity: Granularity) -> Bool {
+        truncated(to: granularity) == other.truncated(to: granularity)
+    }
 
     public static func < (lhs: Self, rhs: Self) -> Bool {
         (lhs.major, lhs.minor, lhs.patch) < (rhs.major, rhs.minor, rhs.patch)

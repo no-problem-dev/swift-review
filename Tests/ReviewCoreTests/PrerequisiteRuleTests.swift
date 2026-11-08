@@ -224,19 +224,38 @@ struct PrerequisiteRuleTests {
         #expect(Fixture.decide(state: state) == .skip(.tooFewSignals(count: 1, required: 2)))
     }
 
-    @Test("方針の既定の値は調べた値と同じ（7日・3日・版ごとに1回・120日・365日に3回）")
-    func defaultsMatchTheResearch() {
-        let policy = ReviewPolicy(timeZone: Fixture.tokyo, moments: [:])
+    @Test("方針の既定の値は rating.md の値（R9: 7日・版ごとに1回・60日・365日に3回・起動から30秒、R25: 14・3・30・90日、R8: 3回目）")
+    func defaultsMatchTheRatingRules() {
+        let policy = ReviewPolicy()
         #expect(policy.isEnabled)
         #expect(policy.minimumDaysSinceInstall == 7)
-        #expect(policy.minimumActiveDays == 3)
+        #expect(policy.minimumActiveDays == 0)
         #expect(policy.activeDayRetention == 60)
+        #expect(policy.minimumSecondsSinceLaunch == 30)
         #expect(policy.asksPerVersion == 1)
         #expect(policy.versionGranularity == .minor)
-        #expect(policy.minimumDaysBetweenAsks == 120)
+        #expect(policy.minimumDaysBetweenAsks == 60)
         #expect(policy.maximumAsksPerYear == ReviewPolicy.systemLimitPerYear)
         #expect(ReviewPolicy.systemLimitPerYear == 3)
-        #expect(policy.asksPerScope == 1)
+        #expect(policy.asksPerScope == nil)
         #expect(policy.moments.isEmpty)
+        #expect(policy.screens.isEmpty)
+        #expect(policy.cooldowns == [
+            .paywallDismissed: .days(14),
+            .error: .days(3),
+            .feedbackSent: .days(30),
+            .cancelScreenOpened: .days(90)
+        ])
+        #expect(ReviewMomentRule().minimumSignals == 3)
+        #expect(ReviewScreenRule().daysAfterRated == 120)
+    }
+
+    @Test("組み込みの名前は rating.md と共通カタログの値")
+    func builtInNames() {
+        #expect(ReviewMomentName.afterWhatsNew.rawValue == "after_whats_new")
+        #expect(ReviewBlockerKind.paywallDismissed.rawValue == "paywall_dismissed")
+        #expect(ReviewBlockerKind.error.rawValue == "error")
+        #expect(ReviewBlockerKind.feedbackSent.rawValue == "feedback_sent")
+        #expect(ReviewBlockerKind.cancelScreenOpened.rawValue == "cancel_screen_opened")
     }
 }
