@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-08
+
 ### Changed
 
 - The own-screen moment (`ReviewScreenMoment`, `present(_:)`) now waits the days since install,
