@@ -273,14 +273,23 @@ prompt there. The two spend different things, so they are two types:
 | What happens | `reach` → `ReviewAsker` → `RequestReviewAction` | `present` returns `.ask`; the app shows its screen |
 | Spends | One of the system's three prompts a year | Nothing of the system's |
 | Declared in | `policy.moments` (`ReviewMomentRule`) | `policy.screens` (`ReviewScreenRule`) |
-| Rules | All of §5.1 | Enabled, declared, `ongoing`, cooldowns, once per version, `daysAfterRated` since `markRated()` |
+| Rules | All of §5.1 | Enabled, declared, days since install, `unmet`, `ongoing`, cooldowns, once per version, `daysAfterRated` since `markRated()` |
 | Recorded as | `ReviewAsk` (counts toward every limit) | `ReviewScreenShow` (counts toward nothing else) |
 | Metric | `review_requested` (common catalog) | `review_screen_shown` (app catalog, optional) |
 
-**Why the screen is free of the install, signal, 60-day and yearly rules.** Those rules exist to
-spend the system's small allowance well (R9). The screen does not touch it. It still respects
-blockers, because a screen right after a paywall or an error is as badly timed as a prompt (R10,
-R25). Who reaches it is decided by the launch order (swift-app-launch shows What's New only to
+**Why the screen is free of the signal, 60-day and yearly rules.** Those rules exist to spend the
+system's small allowance well (R9). The screen does not touch it. It still respects blockers,
+because a screen right after a paywall or an error is as badly timed as a prompt (R10, R25).
+
+**Why it waits the days since install (from 0.3).** The 7 days of R9 are not only about the
+allowance. They are about the person: someone asked before they have used the app rates it low
+(R5, the HIG). Reaching What's New does not mean that time has passed: someone who installed 1.6
+yesterday and updated to 1.7 today upgraded. And the screen's rate button may call the system
+prompt (R24 ③), so the person it reaches is the person the prompt reaches. Waiting is a line drawn
+by behaviour, not by the person's answer, so it keeps R3 and R24's "the same screen for everyone"
+(R4). `ReviewScreenRule.minimumDaysSinceInstall` follows the policy's value unless the screen sets
+its own; `0` turns it off. App requirements (`unmet`) are checked here too, as prerequisites, so a
+screen held for "has not received what the app promises" reads as "not yet", not "not now". Who reaches it is decided by the launch order (swift-app-launch shows What's New only to
 people who upgraded), which also keeps it out of onboarding and the first launch (R5).
 
 **Why it does not contradict §2.** The two prohibitions are about what the package does:
@@ -579,7 +588,7 @@ Answered by the tabisaki owner on 2026-10-01.
 
 **既定は rating.md の値で1つだけ（0.2）。** 7日（R9）・版ごとに1回（R9）・前回から60日（R9）・365日に3回（R9）・起動から30秒（R9）・合図3回（R8）・ペイウォールを閉じて14日／エラーから3日／要望を送って30日／解約の画面から90日（R25）・画面が落ち着いてから1.8秒（R8）。プリセットは作らない。開いた日の数と範囲ごとの回数は rating.md に無いので既定では効かない（tabisaki は3日・1回を自分で渡す）。
 
-**瞬間は2種類（0.2）。** OS の評価のダイアログを呼ぶ `ReviewMoment` と、アプリ自前の評価のお願いの画面を出すだけの `ReviewScreenMoment`。自前の画面は OS の年3回の枠を使わないので、インストールからの日数・合図・60日・365日の規則を当てず、版ごとに1回と「星をつける」を押してからの日数（120日）だけを持つ。止める出来事（ペイウォール・エラー）は当てる。自前の画面の瞬間には OS を呼ぶ道が無いので、「ボタンから requestReview を呼ばない」に反しない（画面のボタンはアプリの物で、パッケージが勧めるのは書く画面のリンク）。後ろに OS のダイアログが続かず、全員に同じ画面を出し、満足かを聞かないので「前置き」にも当たらない。画面そのものは R24 のとおりアプリが持つ。
+**瞬間は2種類（0.2）。** OS の評価のダイアログを呼ぶ `ReviewMoment` と、アプリ自前の評価のお願いの画面を出すだけの `ReviewScreenMoment`。自前の画面は OS の年3回の枠を使わないので、合図・60日・365日の規則を当てず、版ごとに1回と「星をつける」を押してからの日数（120日）を持つ。止める出来事（ペイウォール・エラー）は当てる。インストールからの日数（方針の7日）とアプリの前提（`unmet`）も当てる（0.3）。7日は枠のためだけでなく、使う前に頼むと低く付く（R5）ためで、昨日入れて今日更新した人もお知らせには届く。画面の「星をつける」が OS を呼ぶこともある（R24 ③）。行動で引く線なので R3 と「全員に同じ画面」は崩さない。画面ごとに `ReviewScreenRule(minimumDaysSinceInstall:)` で変えられ、0 で見ない。自前の画面の瞬間には OS を呼ぶ道が無いので、「ボタンから requestReview を呼ばない」に反しない（画面のボタンはアプリの物で、パッケージが勧めるのは書く画面のリンク）。後ろに OS のダイアログが続かず、全員に同じ画面を出し、満足かを聞かないので「前置き」にも当たらない。画面そのものは R24 のとおりアプリが持つ。
 
 **`AppVersion`（0.2）。** 一家の版の型の正本。読む・比べる・表すだけで、前回の版との変化（新規・更新・同じ）は swift-app-launch が持つ。`ExpressibleByStringLiteral` にはしない（`AppVersion("2.1b")` が nil でなく落ちるため）。
 

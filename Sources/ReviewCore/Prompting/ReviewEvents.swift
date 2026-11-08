@@ -109,10 +109,18 @@ public struct ReviewScreenMoment: Hashable, Sendable {
     public var name: ReviewMomentName
     /// Conditions in effect at this instant that rule the screen out. They are not stored.
     public var ongoing: Set<ReviewBlockerKind>
+    /// App-specific prerequisites that do not hold right now, such as "has received what the app
+    /// promises". Checked like a ``ReviewMoment``'s, as a prerequisite.
+    public var unmet: Set<ReviewRequirement>
 
-    public init(_ name: ReviewMomentName, ongoing: Set<ReviewBlockerKind> = []) {
+    public init(
+        _ name: ReviewMomentName,
+        ongoing: Set<ReviewBlockerKind> = [],
+        unmet: Set<ReviewRequirement> = []
+    ) {
         self.name = name
         self.ongoing = ongoing
+        self.unmet = unmet
     }
 }
 

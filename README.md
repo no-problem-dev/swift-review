@@ -29,7 +29,7 @@ holds requests back and for how long, and the limits. One function answers *ask*
   Pass your moments; override a value only with a reason
 - **Two kinds of moment.** `ReviewMoment` calls the system prompt. `ReviewScreenMoment` decides
   whether your own review screen may appear (after What's New, say): it never reaches the system,
-  so only once-per-version, blockers and a wait after "rated" apply
+  so only once-per-version, the days since install, blockers and a wait after "rated" apply
 - **`AppVersion`.** The one version type for the family: parse, compare, print
 - **A metrics hook.** A protocol or a closure; `review_requested { moment }` matches the common
   analytics catalog
@@ -119,10 +119,13 @@ if let id = AppStoreID(appStoreID) {
    `block(.error)`, the moment → `reach`. A settings button that called `requestReview` becomes
    `WriteReviewLink` (R7)
 4. An own review screen after What's New (gamification-app's `ReviewAskGate`, reading-memory's
-   `ReviewMoment.screenIsDue`) → `present(ReviewScreenMoment(.afterWhatsNew))` and `markRated()`
+   `ReviewMoment.screenIsDue`) → `present(ReviewScreenMoment(.afterWhatsNew))` and `markRated()`.
+   An app's own condition (such as "has received what the app promises") goes in `unmet:`, not
+   `ongoing:`
 5. Carry the old record over once: build a `ReviewState(installedAt:asks:ratedAt:)` from your old
    keys and `save` it through the store, so nobody is asked twice in the same version or waits 7
-   days again
+   days again. If only the first use is known (such as the oldest record's date),
+   `backdateInstall(to:)` is enough for the 7 days, which the own screen also waits
 6. Rename your `review_requested` (or `review_prompt_requested`) event to the catalog's
    `review_requested { moment }`
 

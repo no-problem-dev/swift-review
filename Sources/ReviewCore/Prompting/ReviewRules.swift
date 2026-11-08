@@ -50,14 +50,16 @@ public enum ReviewRules {
     ///
     /// The screen never reaches the system, so only these rules apply, in this order:
     ///
-    /// 1. **Prerequisites** — enabled, moment declared in ``ReviewPolicy/screens``
+    /// 1. **Prerequisites** — enabled, moment declared in ``ReviewPolicy/screens``, days since
+    ///    install (``ReviewScreenRule/minimumDaysSinceInstall``, the policy's by default), app
+    ///    requirements
     /// 2. **Blockers** — conditions in effect now, then recorded blockers still cooling down
     ///    (a screen right after a paywall or an error is as badly timed as a prompt)
     /// 3. **Limits** — once per version (at ``ReviewPolicy/versionGranularity``), then
     ///    ``ReviewScreenRule/daysAfterRated`` since the person last pressed the rate button
     ///
-    /// Install days, days of use, signals, the gap between asks and the yearly limit are about the
-    /// system's allowance and are not checked. Showing the screen is never recorded as an ask.
+    /// Days of use, signals, the gap between asks and the yearly limit are about the system's
+    /// allowance and are not checked. Showing the screen is never recorded as an ask.
     public static func decide(
         at now: Date,
         version: AppVersion,
@@ -67,6 +69,11 @@ public enum ReviewRules {
     ) -> ReviewDecision {
         guard policy.isEnabled else { return .skip(.disabled) }
         guard let rule = policy.screens[moment.name] else { return .skip(.undeclaredMoment(moment.name)) }
+        let installDays = rule.minimumDaysSinceInstall ?? policy.minimumDaysSinceInstall
+        if installDays > 0, let reason = installFailure(at: now, state: state, required: installDays) {
+            return .skip(reason)
+        }
+        if let unmet = moment.unmet.min() { return .skip(.requirementUnmet(unmet)) }
         if let reason = blockerFailure(at: now, ongoing: moment.ongoing, scope: nil, state: state, policy: policy) {
             return .skip(reason)
         }
@@ -122,9 +129,8 @@ public enum ReviewRules {
         guard policy.isEnabled else { return .disabled }
         guard let rule = policy.moments[moment.name] else { return .undeclaredMoment(moment.name) }
 
-        let daysSinceInstall = state.installedAt.map { max(0, Int(now.timeIntervalSince($0) / .day)) } ?? 0
-        if state.installedAt == nil || daysSinceInstall < policy.minimumDaysSinceInstall {
-            return .tooSoonAfterInstall(days: daysSinceInstall, required: policy.minimumDaysSinceInstall)
+        if let reason = installFailure(at: now, state: state, required: policy.minimumDaysSinceInstall) {
+            return reason
         }
 
         let activeDays = activeDayCount(at: now, state: state, policy: policy)
@@ -137,6 +143,14 @@ public enum ReviewRules {
         let signals = countedSignals(at: now, moment: moment, rule: rule, state: state, policy: policy)
         if signals < rule.minimumSignals {
             return .tooFewSignals(count: signals, required: rule.minimumSignals)
+        }
+        return nil
+    }
+
+    private static func installFailure(at now: Date, state: ReviewState, required: Int) -> ReviewSkipReason? {
+        let days = state.installedAt.map { max(0, Int(now.timeIntervalSince($0) / .day)) } ?? 0
+        if state.installedAt == nil || days < required {
+            return .tooSoonAfterInstall(days: days, required: required)
         }
         return nil
     }

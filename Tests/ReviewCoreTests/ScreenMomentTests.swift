@@ -12,17 +12,54 @@ struct ScreenMomentTests {
         ReviewPolicy(timeZone: Fixture.tokyo, screens: [.afterWhatsNew: ReviewScreenRule(daysAfterRated: daysAfterRated)])
     }
 
+    /// Installed long enough ago, unless a test says otherwise.
+    private static let longAgo = Fixture.now.addingTimeInterval(-Fixture.days(30))
+
     private func decide(
         _ state: ReviewState = ReviewState(), at now: Date = Fixture.now, version: AppVersion = Fixture.v1_0,
-        policy: ReviewPolicy? = nil
+        policy: ReviewPolicy? = nil, screen: ReviewScreenMoment? = nil
     ) -> ReviewDecision {
-        ReviewRules.decide(at: now, version: version, screen: screen, state: state, policy: policy ?? self.policy())
+        var state = state
+        if state.installedAt == nil { state.installedAt = Self.longAgo }
+        return ReviewRules.decide(at: now, version: version, screen: screen ?? self.screen, state: state,
+                                  policy: policy ?? self.policy())
     }
 
-    @Test("インストール直後・開いた日・合図・前に頼んだ日・365日の回数に関わらず出せる")
+    @Test("インストールから7日（方針の値）たつまで出さない。画面ごとに変えられ、0 で見ない")
+    func waitsDaysSinceInstall() {
+        let installed = ReviewState(installedAt: Fixture.now.addingTimeInterval(-Fixture.days(6)))
+        #expect(decide(installed) == .skip(.tooSoonAfterInstall(days: 6, required: 7)))
+        #expect(!decide(installed).passedPrerequisites)
+        #expect(decide(installed, at: Fixture.now.addingTimeInterval(Fixture.days(1))) == .ask)
+
+        var stricter = policy()
+        stricter.minimumDaysSinceInstall = 14
+        #expect(decide(ReviewState(installedAt: Self.longAgo.addingTimeInterval(Fixture.days(20))), policy: stricter)
+                == .skip(.tooSoonAfterInstall(days: 10, required: 14)))
+
+        let own = ReviewPolicy(timeZone: Fixture.tokyo,
+                               screens: [.afterWhatsNew: ReviewScreenRule(minimumDaysSinceInstall: 2)])
+        #expect(decide(installed, policy: own) == .ask)
+        let off = ReviewPolicy(timeZone: Fixture.tokyo,
+                               screens: [.afterWhatsNew: ReviewScreenRule(minimumDaysSinceInstall: 0)])
+        #expect(ReviewRules.decide(at: Fixture.now, version: Fixture.v1_0, screen: screen,
+                                   state: ReviewState(installedAt: Fixture.now), policy: off) == .ask)
+        #expect(ReviewRules.decide(at: Fixture.now, version: Fixture.v1_0, screen: screen,
+                                   state: ReviewState(), policy: policy())
+                == .skip(.tooSoonAfterInstall(days: 0, required: 7)))
+    }
+
+    @Test("アプリの前提（得を受け取ったか）が揃わないうちは出さない")
+    func unmetRequirementHolds() {
+        let moment = ReviewScreenMoment(.afterWhatsNew, unmet: [Fixture.hasOwnTrip])
+        #expect(decide(screen: moment) == .skip(.requirementUnmet(Fixture.hasOwnTrip)))
+        #expect(!decide(screen: moment).passedPrerequisites)
+    }
+
+    @Test("開いた日・合図・前に頼んだ日・365日の回数に関わらず出せる")
     func ignoresTheSystemAllowanceRules() {
         let asked = ReviewState(
-            installedAt: Fixture.now,
+            installedAt: Self.longAgo,
             asks: [ReviewAsk(at: Fixture.now.addingTimeInterval(-Fixture.days(1)), version: Fixture.v1_0,
                              moment: "book_completed")]
         )
@@ -49,8 +86,7 @@ struct ScreenMomentTests {
         #expect(decide(error).passedPrerequisites)
         #expect(decide(error) != .ask)
         let purchased = ReviewScreenMoment(.afterWhatsNew, ongoing: [.purchased])
-        #expect(ReviewRules.decide(at: Fixture.now, version: Fixture.v1_0, screen: purchased, state: ReviewState(),
-                                   policy: policy()) == .skip(.ongoing(.purchased)))
+        #expect(decide(screen: purchased) == .skip(.ongoing(.purchased)))
     }
 
     @Test("同じ x.y では1回。直しだけの版では出さず、次の x.y でまた出す")
@@ -84,6 +120,11 @@ struct ScreenMomentTests {
         let metrics = RecordingReviewMetrics()
         let prompter = ReviewPrompter(policy: policy(), version: Fixture.v1_0, store: store, asker: asker,
                                       clock: clock, metrics: metrics)
+        await prompter.markActive()
+        #expect(await prompter.present(screen) == .skip(.tooSoonAfterInstall(days: 0, required: 7)))
+        await prompter.backdateInstall(to: Self.longAgo)
+        await prompter.backdateInstall(to: Fixture.now)
+        #expect(try store.load()?.installedAt == Self.longAgo)
 
         #expect(await prompter.present(screen) == .ask)
         #expect(await prompter.present(screen) == .skip(.alreadyShownThisVersion(Fixture.v1_0)))
@@ -92,7 +133,8 @@ struct ScreenMomentTests {
         let state = try #require(try store.load())
         #expect(state.asks.isEmpty)
         #expect(state.screenShows == [ReviewScreenShow(at: Fixture.now, version: Fixture.v1_0, moment: .afterWhatsNew)])
-        #expect(metrics.names == ["review_screen_evaluated", "review_screen_shown", "review_screen_evaluated"])
+        #expect(metrics.names == ["review_screen_evaluated", "review_screen_evaluated", "review_screen_shown",
+                                  "review_screen_evaluated"])
         #expect(!metrics.events.contains { $0.isInCommonCatalog })
 
         await prompter.markRated()
