@@ -66,9 +66,9 @@ swift-review
 | `ReviewSwiftUI` | ReviewCore, SwiftUI, StoreKit, Observation, MessageUI and UIKit (iOS only) | **Only** the app target's root view |
 | `ReviewTesting` | ReviewCore | Tests and test-support targets. Never a shipping target |
 
-- **The manifest has no dependencies**, like `swift-calendar-date`. The DocC plugin is added in CI
-  (`.github/workflows/docc.yml`). SwiftPM resolves dependencies per package, so anything declared
-  here would land on every consumer.
+- **The manifest has no dependencies**, like `swift-calendar-date`. Not even the DocC plugin:
+  SwiftPM resolves dependencies per package, so anything declared here would land on every
+  consumer.
 - tools 6.2, Swift 6 language mode (strict concurrency), iOS 17 / macOS 14 (FAMILY_CHARTER §1).
   `RequestReviewAction` needs iOS 16 / macOS 13, so the floor is the family's, not StoreKit's.
   tvOS and watchOS have no review prompt and are not listed.
@@ -488,8 +488,8 @@ is whether iOS shows the prompt: that is the system's call, and the spec adds no
 
 ## 12. Versioning, platforms, concurrency
 
-- Semantic versioning, bare tags (`0.1.0`), computed by `scripts/release.sh` from the public API
-  diff (family template). 0.x consumers pin `.upToNextMinor(from:)`.
+- Semantic versioning, bare tags (`0.1.0`), pushed by hand after the CHANGELOG entry is merged
+  (CONTRIBUTING.md). 0.x consumers pin `.upToNextMinor(from:)`.
 - iOS 17+ / macOS 14+. Linux is not a target (`os` lock, StoreKit).
 - Swift 6 language mode. Everything public is `Sendable`. Isolation: `ReviewPrompter` is an actor;
   `ReviewRequestBridge` and `MailFeedbackSender` are `@MainActor`; everything else is value types.
